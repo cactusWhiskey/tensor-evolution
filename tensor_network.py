@@ -345,20 +345,20 @@ def cx_single_node(tn: TensorNetwork, other_tn: TensorNetwork):
     other_tn.delete_node(node_id=other_node_id, replacement_node=tn_node)
 
 
-def cx_chain(tn: TensorNetwork, other_tn: TensorNetwork):
-    tn_cx_nodes = tn.get_cx_nodes()
-    other_cx_nodes = other_tn.get_cx_nodes()
-
-    if len(tn_cx_nodes) == 0 or len(other_cx_nodes) == 0:
-        return
-
-    tn_node_id = random.choice(list(tn_cx_nodes.keys()))
-    other_node_id = random.choice(list(other_cx_nodes.keys()))
-
-    tn_chain_ids = tn.get_successor_chain_ids(tn_node_id)
-    tn_nodes = list(tn.get_nodes_from_ids(tn_chain_ids).values())
-    other_chain_ids = other_tn.get_successor_chain_ids(other_node_id)
-    other_chain_nodes = list(other_tn.get_nodes_from_ids(other_chain_ids).values())
-
-    tn.remove_chain(tn_chain_ids, heal=False, replace=True, new_chain_nodes=other_chain_nodes)
-    other_tn.remove_chain(other_chain_ids, heal=False, replace=True, new_chain_nodes=tn_nodes)
+# def cx_chain(tn: TensorNetwork, other_tn: TensorNetwork):
+#     tn_cx_nodes = tn.get_cx_nodes()
+#     other_cx_nodes = other_tn.get_cx_nodes()
+#
+#     if len(tn_cx_nodes) == 0 or len(other_cx_nodes) == 0:
+#         return
+#
+#     tn_node_id = random.choice(list(tn_cx_nodes.keys()))
+#     other_node_id = random.choice(list(other_cx_nodes.keys()))
+#
+#     tn_chain_ids = tn.get_successor_chain_ids(tn_node_id)
+#     tn_nodes = list(tn.get_nodes_from_ids(tn_chain_ids).values())
+#     other_chain_ids = other_tn.get_successor_chain_ids(other_node_id)
+#     other_chain_nodes = list(other_tn.get_nodes_from_ids(other_chain_ids).values())
+#
+#     tn.remove_chain(tn_chain_ids, heal=False, replace=True, new_chain_nodes=other_chain_nodes)
+#     other_tn.remove_chain(other_chain_ids, heal=False, replace=True, new_chain_nodes=tn_nodes)

@@ -6,13 +6,14 @@ import sympy.ntheory as sym
 import tensorflow as tf
 from keras.engine.keras_tensor import KerasTensor
 from networkx import DiGraph
+import config_utils
 
-valid_node_types = ["Dense", "ReLU", "BatchNormalization", "MaxPooling2D", "Conv2D", "add"]
-dense_max_power_two = 6
-max_conv2d_power = 6
-conv2d_kernel_sizes = [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5)]
-max_pooling_size = [(2, 2), (3, 3)]
-global_cache_training = True
+# valid_node_types = ["Dense", "ReLU", "BatchNormalization", "MaxPooling2D", "Conv2D", "add"]
+# dense_max_power_two = 6
+# max_conv2d_power = 6
+# conv2d_kernel_sizes = [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5)]
+# max_pooling_size = [(2, 2), (3, 3)]
+# global_cache_training = True
 
 
 class TensorNode(ABC):
@@ -198,12 +199,12 @@ class DenseNode(TensorNode):
 
     @staticmethod
     def create_random():
-        random_power = random.randint(0, dense_max_power_two)
+        random_power = random.randint(0, config_utils.config['dense_max_power_two'])
         units = 2 ** random_power
         return DenseNode(units)
 
     def mutate(self):
-        random_power = random.randint(0, dense_max_power_two)
+        random_power = random.randint(0, config_utils.config['dense_max_power_two'])
         units = 2 ** random_power
         self.num_units = units
         self.weights = None
@@ -233,15 +234,15 @@ class Conv2dNode(TensorNode):
 
     @staticmethod
     def create_random():
-        random_power = random.randint(0, max_conv2d_power)
+        random_power = random.randint(0, config_utils.config['max_conv2d_power'])
         filters = 2 ** random_power
-        kernel_size = random.choice(conv2d_kernel_sizes)
+        kernel_size = tuple(random.choice(config_utils.config['conv2d_kernel_sizes']))
         return Conv2dNode(filters, kernel_size)
 
     def mutate(self):
-        random_power = random.randint(0, max_conv2d_power)
+        random_power = random.randint(0, config_utils.config['max_conv2d_power'])
         filters = 2 ** random_power
-        kernel_size = random.choice(conv2d_kernel_sizes)
+        kernel_size = tuple(random.choice(config_utils.config['conv2d_kernel_sizes']))
 
         self.filters = filters
         self.kernel_size = kernel_size
@@ -313,11 +314,11 @@ class MaxPool2DNode(TensorNode):
 
     @staticmethod
     def create_random():
-        pool_size = random.choice(max_pooling_size)
+        pool_size = tuple(random.choice(config_utils.config['max_pooling_size']))
         return MaxPool2DNode(pool_size=pool_size)
 
     def mutate(self):
-        pool_size = random.choice(max_pooling_size)
+        pool_size = tuple(random.choice(config_utils.config['max_pooling_size']))
         self.pool_size = pool_size
 
     def fix_input(self, layers_so_far: KerasTensor) -> KerasTensor:

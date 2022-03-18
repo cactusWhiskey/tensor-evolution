@@ -1,24 +1,23 @@
 import random
-
 import numpy
 import ray
-import tensorflow as tf
 from deap import creator, base, tools
 from matplotlib import pyplot as plt
-
 import ActorPoolExtension
+import config_utils
 import tensor_network
 import tensor_node
 
-INPUT_SHAPES = [(28, 28)]
-NUM_OUTPUTS = [10]
-CX, M_Insert, M_Del, M_Mut = 0.4, 0.3, 0.1, 0.2
-POP_SIZE, T_SIZE, NGEN = 10, 3, 100
-COMPLEXITY_PENALTY = 0.002
-opt = tf.keras.optimizers.Adam(0.001)
-loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-fit_epochs = 5
-early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss', patience=2, min_delta=0.01)
+
+# INPUT_SHAPES = [(28, 28)]
+# NUM_OUTPUTS = [10]
+# CX, M_Insert, M_Del, M_Mut = 0.4, 0.9, 0.1, 0.2
+# POP_SIZE, T_SIZE, NGEN = 10, 3, 100
+# COMPLEXITY_PENALTY = 0.002
+# opt = tf.keras.optimizers.Adam(0.001)
+# loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+# fit_epochs = 2
+# early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss', patience=2, min_delta=0.01)
 
 
 def setup_creator():
@@ -26,112 +25,42 @@ def setup_creator():
     creator.create("Individual", list, fitness=creator.FitnessMax)
 
 
-def initialize_ind(input_shapes, num_outputs) -> list:
-    ind = creator.Individual()
-    hyper_params = []
-    tn = tensor_network.TensorNetwork(input_shapes, num_outputs)
-    ind.append(hyper_params)
-    ind.append(tn)
-    return ind
-
-
-def build_individual(individual: list):
-    tn = individual[1]
-    model = tn.build_model()
-    model.compile(loss=loss, optimizer=opt, metrics=['accuracy'])
-    # tf.keras.utils.plot_model(model, "model.png", show_shapes=True)
-    return model
+# def build_individual(individual: list):
+#     tn = individual[1]
+#     model = tn.build_model()
+#     model.compile(loss=loss, optimizer=opt, metrics=['accuracy'])
+#     # tf.keras.utils.plot_model(model, "model.png", show_shapes=True)
+#     return model
 
 
 @ray.remote(num_cpus=1)
 class RemoteEvoActor:
-    def __init__(self, data):
+    def __init__(self, data, remote_config: dict):
         self.data = data
+        self.remote_config = remote_config
 
     def eval(self, individual: list):
         x_train, y_train, x_test, y_test = self.data
-        model = build_individual(individual)
-        model.fit(x_train, y_train, epochs=fit_epochs, callbacks=[early_stopping])
+        tn = individual[1]
+        model = tn.build_model()
+        model.compile(loss=self.remote_config['loss'],
+                      optimizer=self.remote_config['opt'],
+                      metrics=self.remote_config['metrics'])
+        model.fit(x_train, y_train, epochs=self.remote_config['epochs'],
+                  callbacks=self.remote_config['callbacks'])
         test_loss, test_acc = model.evaluate(x_test, y_test)
 
         length = len(individual[1].get_middle_nodes())
-        penalty = COMPLEXITY_PENALTY * length
+        complexity_penalty = self.remote_config['complexity_penalty']
+        penalty = complexity_penalty * length
         return (test_acc - penalty),
 
 
-def eval_remote(actor: RemoteEvoActor, individual: list):
-    individual = list(individual)
-    return actor.eval.remote(individual)
-
-
-def evaluate(individual: list, data: tuple):
-    x_train, y_train, x_test, y_test = data
-    model = build_individual(individual)
-    tn = individual[1]
-
-    if tensor_node.global_cache_training:
-        tn.store_weights(model, direction_into_tn=False)
-
-    model.fit(x_train, y_train, epochs=fit_epochs, callbacks=[early_stopping])
-    test_loss, test_acc = model.evaluate(x_test, y_test)
-
-    if tensor_node.global_cache_training:
-        tn.store_weights(model, direction_into_tn=True)
-
-    length = len(individual[1].get_middle_nodes())
-    penalty = COMPLEXITY_PENALTY * length
-
-    del model, x_train, x_test, y_test, y_train
-
-    return test_acc - penalty,
-
-
-def mutate_insert(individual: list):
-    tn = individual[1]
-    position = random.randint(0, len(tn.get_valid_insert_positions()) - 1)
-    node_type = random.choice(tensor_node.valid_node_types)
-    node = tensor_node.create(node_type)
-    tn.insert_node(node, position)
-    return individual,
-
-
-def mutate_mutate(individual: list):
-    tn = individual[1]
-    length = len(tn.get_mutatable_nodes())
-
-    if length == 0:  # nothing to mutate
-        return individual,
-
-    position = random.randint(0, length - 1)
-    tn.mutate_node(position)
-    return individual,
-
-
-def mutate_delete(individual: list):
-    tn = individual[1]
-    length = len(tn.get_middle_nodes())
-
-    if length == 0:  # nothing to delete
-        return individual,
-
-    position = random.randint(0, length - 1)
-    node_id = list(tn.get_middle_nodes().keys())[position]
-    tn.delete_node(node_id=node_id)
-    return individual,
-
-
-def cx_single_node(ind1, ind2):
-    tn = ind1[1]
-    other_tn = ind2[1]
-    tensor_network.cx_single_node(tn, other_tn)
-    return ind1, ind2
-
-
-def cx_chain(ind1, ind2):
-    tn = ind1[1]
-    other_tn = ind2[1]
-    tensor_network.cx_chain(tn, other_tn)
-    return ind1, ind2
+# def cx_chain(ind1, ind2):
+#     tn = ind1[1]
+#     other_tn = ind2[1]
+#     tensor_network.cx_chain(tn, other_tn)
+#     return ind1, ind2
 
 
 class EvolutionWorker:
@@ -147,18 +76,25 @@ class EvolutionWorker:
         self.setup_stats()
         self.setup_log()
 
-    def setup_toolbox(self):
-        self.toolbox.register("individual", initialize_ind,
-                              input_shapes=INPUT_SHAPES, num_outputs=NUM_OUTPUTS)
-        self.toolbox.register("population", tools.initRepeat, list, self.toolbox.individual)
-        self.toolbox.register("mate", cx_single_node)
-        self.toolbox.register("mutate_insert", mutate_insert)
-        self.toolbox.register("mutate_delete", mutate_delete)
-        self.toolbox.register("mutate_mutate", mutate_mutate)
-        self.toolbox.register("select", tools.selTournament, tournsize=T_SIZE)
+    def get_remote_config(self) -> dict:
+        remote_config = {}
+        remote_config['loss'] = config_utils.loss
+        remote_config['metrics'] = config_utils.config['metrics']
+        remote_config['opt'] = config_utils.opt
+        remote_config['epochs'] = config_utils.config['max_fit_epochs']
+        remote_config['callbacks'] = config_utils.callbacks
+        remote_config['complexity_penalty'] = config_utils.config['complexity_penalty']
+        return remote_config
 
-    # def setup_pop(self):
-    #     self.pop = self.toolbox.population(n=POP_SIZE)
+    def setup_toolbox(self):
+        self.toolbox.register("individual", self.initialize_ind,
+                              input_shapes=config_utils.config['input_shapes'], num_outputs=config_utils.config['num_outputs'])
+        self.toolbox.register("population", tools.initRepeat, list, self.toolbox.individual)
+        self.toolbox.register("mate", self.cx_single_node)
+        self.toolbox.register("mutate_insert", self.mutate_insert)
+        self.toolbox.register("mutate_delete", self.mutate_delete)
+        self.toolbox.register("mutate_mutate", self.mutate_mutate)
+        self.toolbox.register("select", tools.selTournament, tournsize=config_utils.config['t_size'])
 
     def setup_stats(self):
         self.stats = tools.Statistics(key=lambda ind: ind.fitness.values)
@@ -179,26 +115,105 @@ class EvolutionWorker:
         ax.set_ylabel("Fitness", color="b")
         plt.show()
 
-    def evolve(self, data, remote=False, num_actors=1):
-        if not remote:
-            self.toolbox.register("evaluate", evaluate, data=data)
+    @staticmethod
+    def initialize_ind(input_shapes, num_outputs) -> list:
+        ind = creator.Individual()
+        hyper_params = []
+        tn = tensor_network.TensorNetwork(input_shapes, num_outputs)
+        ind.append(hyper_params)
+        ind.append(tn)
+        return ind
+
+    @staticmethod
+    def eval_remote(actor: RemoteEvoActor, individual: list):
+        individual = list(individual)
+        return actor.eval.remote(individual)
+
+    @staticmethod
+    def evaluate(individual: list, data: tuple):
+        x_train, y_train, x_test, y_test = data
+        tn = individual[1]
+
+        model = tn.build_model()
+        model.compile(loss=config_utils.loss, optimizer=config_utils.opt,
+                      metrics=config_utils.config['metrics'])
+
+        if config_utils.config['global_cache_training']:
+            tn.store_weights(model, direction_into_tn=False)
+
+        model.fit(x_train, y_train, epochs=config_utils.config['max_fit_epochs'],
+                  callbacks=config_utils.callbacks)
+        test_loss, test_acc = model.evaluate(x_test, y_test)
+
+        if config_utils.config['global_cache_training']:
+            tn.store_weights(model, direction_into_tn=True)
+
+        length = len(individual[1].get_middle_nodes())
+        penalty = config_utils.config['complexity_penalty'] * length
+
+        return test_acc - penalty,
+
+    @staticmethod
+    def mutate_insert(individual: list):
+        tn = individual[1]
+        position = random.randint(0, len(tn.get_valid_insert_positions()) - 1)
+        node_type = random.choice(config_utils.config['valid_node_types'])
+        node = tensor_node.create(node_type)
+        tn.insert_node(node, position)
+        return individual,
+
+    @staticmethod
+    def mutate_mutate(individual: list):
+        tn = individual[1]
+        length = len(tn.get_mutatable_nodes())
+
+        if length == 0:  # nothing to mutate
+            return individual,
+
+        position = random.randint(0, length - 1)
+        tn.mutate_node(position)
+        return individual,
+
+    @staticmethod
+    def mutate_delete(individual: list):
+        tn = individual[1]
+        length = len(tn.get_middle_nodes())
+
+        if length == 0:  # nothing to delete
+            return individual,
+
+        position = random.randint(0, length - 1)
+        node_id = list(tn.get_middle_nodes().keys())[position]
+        tn.delete_node(node_id=node_id)
+        return individual,
+
+    @staticmethod
+    def cx_single_node(ind1, ind2):
+        tn = ind1[1]
+        other_tn = ind2[1]
+        tensor_network.cx_single_node(tn, other_tn)
+        return ind1, ind2
+
+    def evolve(self, data):
+        if not config_utils.config['remote']:
+            self.toolbox.register("evaluate", self.evaluate, data=data)
         else:
             ray.init()
             actors = []
-            for _ in range(num_actors):
-                actor = RemoteEvoActor.remote(data)
+            for _ in range(config_utils.config['remote_actors']):
+                actor = RemoteEvoActor.remote(data, self.get_remote_config())
                 actors.append(actor)
 
             self.pool = ActorPoolExtension(actors)
-            self.toolbox.register("evaluate", eval_remote)
+            self.toolbox.register("evaluate", self.eval_remote)
 
-        self._evolve(remote)
+        self._evolve()
 
-    def _evolve(self, remote: bool):
-        self.pop = self.toolbox.population(n=POP_SIZE)
+    def _evolve(self):
+        self.pop = self.toolbox.population(n=config_utils.config['pop_size'])
 
         # Evaluate the entire population
-        if remote:
+        if config_utils.config['remote']:
             fitnesses = self.pool.map_ordered_return_all(self.toolbox.evaluate, self.pop)
         else:
             fitnesses = list(map(self.toolbox.evaluate, self.pop))
@@ -206,7 +221,7 @@ class EvolutionWorker:
         for ind, fit in zip(self.pop, fitnesses):
             ind.fitness.values = fit
 
-        for gen in range(NGEN):
+        for gen in range(config_utils.config['ngen']):
             # Select the next generation individuals
             offspring = self.toolbox.select(self.pop, len(self.pop))
             # Clone the selected individuals
@@ -214,29 +229,29 @@ class EvolutionWorker:
 
             # Apply crossover
             for child1, child2 in zip(offspring[::2], offspring[1::2]):
-                if random.random() < CX:
+                if random.random() < config_utils.config['cx']:
                     self.toolbox.mate(child1, child2)
                     del child1.fitness.values
                     del child2.fitness.values
 
             # apply mutation
             for mutant in offspring:
-                if random.random() < M_Insert:
+                if random.random() < config_utils.config['m_insert']:
                     self.toolbox.mutate_insert(mutant)
                     del mutant.fitness.values
 
-                if random.random() < M_Del:
+                if random.random() < config_utils.config['m_del']:
                     self.toolbox.mutate_delete(mutant)
                     del mutant.fitness.values
 
-                if random.random() < M_Mut:
+                if random.random() < config_utils.config['m_mut']:
                     self.toolbox.mutate_mutate(mutant)
                     del mutant.fitness.values
 
             # Evaluate the individuals with an invalid fitness
             invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
 
-            if remote:
+            if config_utils.config['remote']:
                 fitnesses = self.pool.map_ordered_return_all(self.toolbox.evaluate, invalid_ind)
             else:
                 fitnesses = list(map(self.toolbox.evaluate, invalid_ind))
@@ -247,15 +262,14 @@ class EvolutionWorker:
             self.pop[:] = offspring
             self.record = self.stats.compile(self.pop)
             self.logbook.record(gen=gen, **self.record)
-            print('\n\n')
+            print('\n')
             print(self.logbook.header)
             print(self.logbook.stream)
-            print('\n\n')
-            print("Pop Size: " + str(len(self.pop)))
+            print('\n')
+
         print("-- End of (successful) evolution --")
 
         best_ind = tools.selBest(self.pop, 1)[0]
         print("Best individual is %s" % best_ind.fitness.values)
-        build_individual(best_ind).summary()
-
+        best_ind[1].build_model().summary()
         self.plot()

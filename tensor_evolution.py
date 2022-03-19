@@ -3,7 +3,7 @@ import numpy
 import ray
 from deap import creator, base, tools
 from matplotlib import pyplot as plt
-import ActorPoolExtension
+from ActorPoolExtension import ActorPoolExtension
 import config_utils
 import tensor_network
 import tensor_node

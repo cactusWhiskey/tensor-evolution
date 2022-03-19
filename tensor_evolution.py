@@ -9,28 +9,9 @@ import tensor_network
 import tensor_node
 
 
-# INPUT_SHAPES = [(28, 28)]
-# NUM_OUTPUTS = [10]
-# CX, M_Insert, M_Del, M_Mut = 0.4, 0.9, 0.1, 0.2
-# POP_SIZE, T_SIZE, NGEN = 10, 3, 100
-# COMPLEXITY_PENALTY = 0.002
-# opt = tf.keras.optimizers.Adam(0.001)
-# loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-# fit_epochs = 2
-# early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss', patience=2, min_delta=0.01)
-
-
 def setup_creator():
     creator.create("FitnessMax", base.Fitness, weights=(1.0,))
     creator.create("Individual", list, fitness=creator.FitnessMax)
-
-
-# def build_individual(individual: list):
-#     tn = individual[1]
-#     model = tn.build_model()
-#     model.compile(loss=loss, optimizer=opt, metrics=['accuracy'])
-#     # tf.keras.utils.plot_model(model, "model.png", show_shapes=True)
-#     return model
 
 
 @ray.remote(num_cpus=1)
@@ -88,7 +69,8 @@ class EvolutionWorker:
 
     def setup_toolbox(self):
         self.toolbox.register("individual", self.initialize_ind,
-                              input_shapes=config_utils.config['input_shapes'], num_outputs=config_utils.config['num_outputs'])
+                              input_shapes=config_utils.config['input_shapes'],
+                              num_outputs=config_utils.config['num_outputs'])
         self.toolbox.register("population", tools.initRepeat, list, self.toolbox.individual)
         self.toolbox.register("mate", self.cx_single_node)
         self.toolbox.register("mutate_insert", self.mutate_insert)
@@ -272,4 +254,4 @@ class EvolutionWorker:
         best_ind = tools.selBest(self.pop, 1)[0]
         print("Best individual is %s" % best_ind.fitness.values)
         best_ind[1].build_model().summary()
-        self.plot()
+        #self.plot()

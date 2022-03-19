@@ -1,9 +1,13 @@
+import copy
 import itertools
+import json
+
 import tensorflow as tf
 import networkx as nx
 import random
 from matplotlib import pyplot as plt
 
+import tensor_encoder
 import tensor_node
 
 
@@ -22,6 +26,30 @@ class TensorNetwork:
         if connected:
             self.create_inputs(input_shapes)
             self.create_outputs(output_units)
+
+    def serialize(self) -> dict:
+        serial_dict = copy.deepcopy(self.__dict__)
+        serial_dict['graph'] = nx.node_link_data(self.graph)
+
+        for node_id, node in self.all_nodes.items():
+            serial_node = node.serialize()
+            (serial_dict['all_nodes'])[node_id] = serial_node
+
+        return serial_dict
+
+    @staticmethod
+    def deserialize(tn_dict: dict):
+        tn = TensorNetwork(None, None, False)
+        tn.__dict__ = tn_dict
+        tn.graph = nx.node_link_graph(tn_dict['graph'])
+
+        for node_id, serial_node in tn.all_nodes.items():
+            tn.all_nodes[node_id] = tensor_node.TensorNode.deserialize(serial_node)
+
+        for index, shape in enumerate(tn.input_shapes):
+            tn.input_shapes[index] = tuple(shape)
+
+        return tn
 
     def __deepcopy__(self, memodict={}):
         return self.clone()
@@ -314,11 +342,16 @@ class TensorNetwork:
         nx.draw_networkx(self.graph, pos)
         plt.show()
 
-    def save(self):
-        pass
+    def save(self, filename: str):
+        with open(filename, 'w') as file:
+            json.dump(self, fp=file, cls=tensor_encoder.TensorEncoder)
 
-    def load(self):
-        pass
+    @staticmethod
+    def load(filename: str):
+        with open(filename, 'r') as file:
+            tn_dict = json.load(file)
+            tn = TensorNetwork.deserialize(tn_dict)
+            return tn
 
 
 def get_parents(tn: TensorNetwork, node: tensor_node.TensorNode) -> list:

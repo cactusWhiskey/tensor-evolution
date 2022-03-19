@@ -1,3 +1,4 @@
+import copy
 import itertools
 import random
 import math
@@ -7,13 +8,6 @@ import tensorflow as tf
 from keras.engine.keras_tensor import KerasTensor
 from networkx import DiGraph
 import config_utils
-
-# valid_node_types = ["Dense", "ReLU", "BatchNormalization", "MaxPooling2D", "Conv2D", "add"]
-# dense_max_power_two = 6
-# max_conv2d_power = 6
-# conv2d_kernel_sizes = [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5)]
-# max_pooling_size = [(2, 2), (3, 3)]
-# global_cache_training = True
 
 
 class TensorNode(ABC):
@@ -30,6 +24,19 @@ class TensorNode(ABC):
         self.weights = None
         self.keras_tensor_input_name = None
         self.required_num_weights = 2
+
+    def serialize(self) -> dict:
+        return copy.deepcopy(self.__dict__)
+
+    @staticmethod
+    def deserialize(node_dict: dict):
+        node = create(node_dict['label'])
+        node.__dict__ = node_dict
+        node.deserialize_cleanup()
+        return node
+
+    def deserialize_cleanup(self):
+        pass
 
     def __call__(self, all_nodes: dict, graph: DiGraph, level=0) -> KerasTensor:
         if level > 10:
@@ -108,6 +115,9 @@ class InputNode(TensorNode):
 
     def reset(self):
         self.saved_layers = None
+
+    def deserialize_cleanup(self):
+        self.input_shape = tuple(self.input_shape)
 
     @staticmethod
     def create_random():
@@ -326,20 +336,24 @@ class MaxPool2DNode(TensorNode):
 
 
 def create(node_type: str) -> TensorNode:
-    if node_type == "Conv2D":
+    if node_type == "Conv2dNode":
         return Conv2dNode.create_random()
-    elif node_type == "Dense":
+    elif node_type == "DenseNode":
         return DenseNode.create_random()
-    elif node_type == "Flatten":
+    elif node_type == "FlattenNode":
         return FlattenNode()
-    elif node_type == "MaxPooling2D":
+    elif node_type == "MaxPool2DNode":
         return MaxPool2DNode.create_random()
-    elif node_type == "ReLU":
+    elif node_type == "ReluNode":
         return ReluNode.create_random()
-    elif node_type == "add":
+    elif node_type == "AdditionNode":
         return AdditionNode.create_random()
-    elif node_type == "BatchNormalization":
+    elif node_type == "BatchNormNode":
         return BatchNormNode.create_random()
+    elif node_type == "InputNode":
+        return InputNode(None)
+    elif node_type == "OutputNode":
+        return OutputNode(None)
     else:
         raise ValueError("Unsupported node type: " + str(node_type))
 

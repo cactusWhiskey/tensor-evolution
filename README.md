@@ -1,15 +1,15 @@
-#Tensor Evolution
+# Tensor Evolution
 Tensor-Evolution is a library for evolving neural network topology using a genetic algorithm. This library currently 
 uses [Deap](https://github.com/DEAP/deap) as its evolutionary backend, and [Tensorflow](https://github.com/tensorflow/tensorflow) 
 for the neural networks. 
 
-##Installation
+## Installation
 At the moment you'll need to clone the source and then either edit one of the examples, or create a new python file 
 and import the *tensor_evolution* module. I am working on getting this project on pip. 
 
-##Usage
+## Usage
 
-###Running an Evolution
+### Running an Evolution
 Start by importing the *tensor_evolution* module. This is the main driver for the evolution. 
 
 ```
@@ -30,7 +30,7 @@ worker.evolve(data=data)
 
 Please reference the end to end examples for full details.
 
-###Configuration
+### Configuration
 Everything is configured via yaml file. For the moment, since you will need to clone the project to use it, 
 just edit the default *config.yaml* file.
 
@@ -47,10 +47,10 @@ pop_size: 30 #population size
 
 Mutation rates, valid neural network layer types, **input and output shapes**, etc. are all controlled from the config file.
 
-##Project Status
+## Project Status
 Very much still a work in progress, (as is this readme), but it is functional. The mnist example runs just fine.
 
-##Dependencies
+## Dependencies
 | Library                                                | License                                                                                        |
 |--------------------------------------------------------|------------------------------------------------------------------------------------------------|
 | [tensorflow](https://github.com/tensorflow/tensorflow) | [Apache License 2.0](https://github.com/tensorflow/tensorflow/blob/master/LICENSE)             |
@@ -61,4 +61,4 @@ Very much still a work in progress, (as is this readme), but it is functional. T
 | [matplotlib](https://github.com/matplotlib/matplotlib) | [License Details](https://matplotlib.org/3.5.0/users/project/license.html#license-agreement)   |
 | [sympy](https://github.com/sympy/sympy)                | [License Details](https://github.com/sympy/sympy/blob/master/LICENSE)                          |
 
-##License 
+## License 

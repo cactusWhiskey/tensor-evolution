@@ -1,9 +1,10 @@
+"""Extension to the actor pool class from the Ray library."""
 import ray
 from ray.util import ActorPool
 
 
 class ActorPoolExtension(ActorPool):
-
+    """Extension to the actor pool class from the Ray library."""
     def map_ordered_return_all(self, fn, values) -> list:
         """Apply the given function in parallel over the actors and values.
 
@@ -124,7 +125,6 @@ class ActorPoolExtension(ActorPool):
         """
         if not self.has_next():
             raise StopIteration("No more results to get")
-        # TODO(ekl) bulk wait for performance
         res, _ = ray.wait(
             list(self._future_to_actor), num_returns=1, timeout=timeout)
         if res:
@@ -157,7 +157,6 @@ class ActorPoolExtension(ActorPool):
 
         if not self.has_next():
             raise StopIteration("No more results to get")
-        # TODO(ekl) bulk wait for performance
         res, _ = ray.wait(
             list(self._future_to_actor), num_returns=1, timeout=timeout)
         if res:
@@ -169,4 +168,3 @@ class ActorPoolExtension(ActorPool):
         del self._index_to_future[i]
         self._next_return_index = max(self._next_return_index, i + 1)
         return ray.get(future), original_index
-

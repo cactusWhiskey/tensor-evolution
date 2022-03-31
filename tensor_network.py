@@ -1,17 +1,18 @@
+"""defines a Tensor Network, which is the class that holds most of our genome information"""
 import copy
 import itertools
 import json
-
+import time
+import random
 import tensorflow as tf
 import networkx as nx
-import random
 from matplotlib import pyplot as plt
-
 import tensor_encoder
 import tensor_node
 
 
 class TensorNetwork:
+    """Holds all the information that defines the NN gnome"""
     id_iter = itertools.count(100)
 
     def __init__(self, input_shapes: list, output_units: list, connected=True):
@@ -24,10 +25,11 @@ class TensorNetwork:
         self.output_units = output_units
 
         if connected:
-            self.create_inputs(input_shapes)
-            self.create_outputs(output_units)
+            self._create_inputs(input_shapes)
+            self._create_outputs(output_units)
 
     def serialize(self) -> dict:
+        """Creates serializable version of this class"""
         serial_dict = copy.deepcopy(self.__dict__)
         serial_dict['graph'] = nx.node_link_data(self.graph)
 
@@ -39,22 +41,26 @@ class TensorNetwork:
 
     @staticmethod
     def deserialize(tn_dict: dict):
-        tn = TensorNetwork(None, None, False)
-        tn.__dict__ = tn_dict
-        tn.graph = nx.node_link_graph(tn_dict['graph'])
+        """Builds a new tensor network from  serialized instance
+        Args:
+            tn_dict: Serialized Tensor Network
+            """
+        tensor_net = TensorNetwork(None, None, False)
+        tensor_net.__dict__ = tn_dict
+        tensor_net.graph = nx.node_link_graph(tn_dict['graph'])
 
-        for node_id, serial_node in tn.all_nodes.items():
-            tn.all_nodes[node_id] = tensor_node.TensorNode.deserialize(serial_node)
+        for node_id, serial_node in tensor_net.all_nodes.items():
+            tensor_net.all_nodes[node_id] = tensor_node.TensorNode.deserialize(serial_node)
 
-        for index, shape in enumerate(tn.input_shapes):
-            tn.input_shapes[index] = tuple(shape)
+        for index, shape in enumerate(tensor_net.input_shapes):
+            tensor_net.input_shapes[index] = tuple(shape)
 
-        return tn
+        return tensor_net
 
     def __deepcopy__(self, memodict={}):
-        return self.clone()
+        return self._clone()
 
-    def clone(self):
+    def _clone(self):
         clone_tn = TensorNetwork(self.input_shapes, self.output_units, connected=False)
 
         node_cross_ref = {}
@@ -72,7 +78,7 @@ class TensorNetwork:
 
         return clone_tn
 
-    def create_inputs(self, input_shapes: list):
+    def _create_inputs(self, input_shapes: list):
         if len(input_shapes) > 1:
             raise ValueError("Multiple inputs not yet supported")
 
@@ -80,7 +86,7 @@ class TensorNetwork:
             node = tensor_node.InputNode(shape)
             self.register_node(node)
 
-    def create_outputs(self, output_units: list):
+    def _create_outputs(self, output_units: list):
         for units in output_units:
             node = tensor_node.OutputNode(units)
             self.register_node(node)
@@ -89,15 +95,23 @@ class TensorNetwork:
                 self.graph.add_edge(input_id, node.id)
 
     def insert_node(self, new_node: tensor_node.TensorNode, position: int):
-        # inserts node before the given position
-        # positions refer to the index in the "non_input_nodes" list, which is kept in no particular oder
+        """inserts node before the given position.
+        Positions refer to the index in the "non_input_nodes" list,
+        which is kept in no particular order
+        Args:
+            new_node: node to be inserted
+            position: position to insert node before
+        """
+
         nodes = self.get_valid_insert_positions()
         if position > (len(nodes) - 1):
             raise ValueError("Invalid request to insert node: Length = " +
                              str(len(nodes)) + " position given as: " + str(position))
 
         child_node = list(nodes.values())[position]  # node at position becomes child
-        parent = get_parents(self, child_node)[0]  # valid insert positions only have a single parent
+
+        # valid insert positions only have a single parent
+        parent = get_parents(self, child_node)[0]
 
         self.register_node(new_node)
 
@@ -116,6 +130,12 @@ class TensorNetwork:
             self.graph.add_edge(branch_origin, new_node.id)
 
     def delete_node(self, node_id, replacement_node=None):
+        """
+        deletes a node from the network
+        :param node_id: node to delete
+        :param replacement_node: None, unless you intend to replace the node instead of delete it
+
+        """
         replace = False
         if replacement_node is not None:
             replace = True
@@ -145,6 +165,11 @@ class TensorNetwork:
                     self.graph.add_edge(parent.id, child.id)
 
     def register_node(self, node: tensor_node.TensorNode):
+        """
+        registers a node with the network. Adds it to the graph which holds the
+        network topology. Also adds it to the main dict of nodes
+        :param node: node to register
+        """
         self.all_nodes[node.id] = node
         label = node.get_label()
         self.graph.add_node(node.id, label=label)
@@ -171,6 +196,14 @@ class TensorNetwork:
     #     self.graph.nodes[replacement_node.id]['label'] = replacement_node.get_label()
 
     def remove_chain(self, id_chain: list, heal=True, replace=False, new_chain_nodes: list = None):
+        """
+        Removes an entire chain of linked nodes
+        :param id_chain: list of node ids to be removed
+        :param heal: re-connect nodes after removal
+        :param replace: replace the removed chain with a new chain
+        :param new_chain_nodes: chain to replace with
+
+        """
         start_node = self.get_a_middle_node(node_id=id_chain[0])
         end_node = self.get_a_middle_node(node_id=id_chain[-1])
         start_parents = get_parents(self, start_node)
@@ -197,6 +230,13 @@ class TensorNetwork:
                 self.graph.add_edge(new_chain_nodes[-1].id, child.id)
 
     def get_successor_chain_ids(self, start_id: int) -> list:
+        """
+        Gets the ids of all nodes that are successors of the start_id.
+        Recursively gets them all the way back
+        to the input node
+        Args:
+            start_id: node to start from
+        """
         node_ids = []
         current_node_id = start_id
 
@@ -210,6 +250,11 @@ class TensorNetwork:
         return node_ids
 
     def mutate_node(self, position: int):
+        """
+        Mutates the node at the given position
+        :param position: position of the node to mutate
+
+        """
         nodes = self.get_mutatable_nodes()
         if position > (len(nodes) - 1):
             raise ValueError("Invalid request to mutate node: Length = " +
@@ -219,6 +264,13 @@ class TensorNetwork:
         node_to_mutate.mutate()
 
     def store_weights(self, model: tf.keras.Model, direction_into_tn: bool):
+        """
+        Stores model weights into the genome or gets them from the genome
+        :param model: model to store weights from or load weights to
+        :param direction_into_tn: True stores weights into the network,
+        False gets them and loads them into the model
+        :return:
+        """
         layers = model.layers
         nodes_to_cache = self.get_nodes_can_cache()
         for node in nodes_to_cache.values():
@@ -233,22 +285,23 @@ class TensorNetwork:
                             node.weights = weights
                             break
                     else:
-                        try:
-                            node_weights = node.weights
-                            layer_weights = layer.get_weights()
+                        node_weights = node.weights
+                        layer_weights = layer.get_weights()
 
-                            if len(node_weights) != len(layer_weights):
+                        if len(node_weights) != len(layer_weights):
+                            continue
+
+                        for i in range(len(node_weights)):
+                            if node_weights[i].shape != layer_weights[i].shape:
                                 continue
 
-                            for i in range(len(node_weights)):
-                                if node_weights[i].shape != layer_weights[i].shape:
-                                    continue
-
-                            layer.set_weights(node_weights)
-                        except:
-                            print("debug")
+                        layer.set_weights(node_weights)
 
     def build_model(self) -> tf.keras.Model:
+        """
+        Builds a model from this network
+        :return: NN model
+        """
         inputs = self.all_nodes[self.input_ids[0]](self.all_nodes, self.graph)
         outputs = self.all_nodes[self.output_ids[0]](self.all_nodes, self.graph)
 
@@ -256,37 +309,79 @@ class TensorNetwork:
         return model
 
     def get_output_nodes(self) -> dict:
+        """
+        Gets output nodes
+        :return: dict of output nodes
+        """
         return {k: v for (k, v) in self.all_nodes.items() if k in self.output_ids}
 
     def get_input_nodes(self) -> dict:
+        """
+
+        :return: dict of input nodes
+        """
         return {k: v for (k, v) in self.all_nodes.items() if k in self.input_ids}
 
     def get_not_input_nodes(self) -> dict:
+        """
+
+        :return: dict of all nodes that are not inputs
+        """
         return {k: v for (k, v) in self.all_nodes.items() if k not in self.input_ids}
 
     def get_middle_nodes(self) -> dict:
+        """
+
+        :return: dict of all nodes that are neither input nor outputs
+        """
         return {k: v for (k, v) in self.all_nodes.items()
                 if (k not in self.input_ids) and (k not in self.output_ids)}
 
     def get_mutatable_nodes(self) -> dict:
+        """
+
+        :return: dict of nodes which can be mutated
+        """
         return {k: v for (k, v) in self.all_nodes.items() if v.can_mutate}
 
     def get_cx_nodes(self) -> dict:
+        """
+
+        :return: dict of nodes which can be crossed over with another genome
+        """
         return {k: v for (k, v) in self.all_nodes.items() if
                 (len(list(self.graph.predecessors(k))) == 1) and
                 (len(list(self.graph.successors(k))) == 1)}
 
     def get_valid_insert_positions(self) -> dict:
+        """
+
+        :return: dict of nodes which it would be valid to insert a node before.
+        """
         return {k: v for (k, v) in self.get_not_input_nodes().items() if
                 (len(list(self.graph.predecessors(k))) == 1)}
 
     def get_nodes_can_cache(self) -> dict:
+        """
+
+        :return: dict of nodes that can cache weights
+        """
         return {k: v for (k, v) in self.all_nodes.items() if v.node_allows_cache_training}
 
     def get_nodes_from_ids(self, id_list: list) -> dict:
+        """
+
+        :param id_list: list of ids to get nodes for
+        :return: dict of nodes that correspond to the given ids
+        """
         return {k: v for (k, v) in self.all_nodes.items() if k in id_list}
 
     def get_parent_chain_ids(self, node) -> list:
+        """
+
+        :param node: node to start at
+        :return: list of node ids of parents recursively back to input node
+        """
         current_nodes = [node.id]
         current_parents_ids = []
         all_parents_ids = []
@@ -305,6 +400,11 @@ class TensorNetwork:
         return list(set(all_parents_ids))
 
     def get_children(self, node) -> list:
+        """
+
+        :param node: node to get children for
+        :return: list of nodes that are successors of the given node
+        """
         child_ids = self.graph.successors(node.id)
         children = []
         for c_id in child_ids:
@@ -312,6 +412,12 @@ class TensorNetwork:
         return children
 
     def get_a_middle_node(self, position=None, node_id=None) -> tensor_node.TensorNode:
+        """
+        Gets a middle node as specified by either its position or its node id
+        :param position: position to get
+        :param node_id: node id to get
+        :return: the requested node
+        """
         if (position is None) and (node_id is None):
             raise ValueError("Must specify either position or node_id")
 
@@ -333,37 +439,67 @@ class TensorNetwork:
         return len(self.all_nodes)
 
     def draw_graphviz(self):
+        """
+        Saves a graph png to file of this genome
+        :return:
+        """
         py_graph = nx.nx_agraph.to_agraph(self.graph)
         py_graph.layout('dot')
-        py_graph.draw('tensor_net_' + str(self.net_id) + '.png')
+        py_graph.draw(f'tensor_net_{self.net_id}_{time.time()}.png')
 
     def plot(self):
+        """
+        Plots a graph of this genome into a pop-up window
+        :return:
+        """
         pos = nx.nx_pydot.graphviz_layout(self.graph)
         nx.draw_networkx(self.graph, pos)
         plt.show()
 
     def save(self, filename: str):
-        with open(filename, 'w') as file:
+        """
+        Save this network to file
+        :param filename: full path to the file
+        :return:
+        """
+        with open(filename, 'w+', encoding='latin-1') as file:
             json.dump(self, fp=file, cls=tensor_encoder.TensorEncoder)
 
     @staticmethod
     def load(filename: str):
-        with open(filename, 'r') as file:
+        """
+        Creates a new tensor network from file
+        :param filename: full path to load from
+        :return:
+        """
+        with open(filename, 'r', encoding='latin-1') as file:
             tn_dict = json.load(file)
-            tn = TensorNetwork.deserialize(tn_dict)
-            return tn
+            tensor_net = TensorNetwork.deserialize(tn_dict)
+            return tensor_net
 
 
-def get_parents(tn: TensorNetwork, node: tensor_node.TensorNode) -> list:
-    parents_ids = tn.graph.predecessors(node.id)  # iterator
+def get_parents(tensor_net: TensorNetwork, node: tensor_node.TensorNode) -> list:
+    """
+    Gets a nodes parents
+    :param tensor_net: the tensor network the node i in
+    :param node: the node to get parents for
+    :return: a list of the immediate predecessors of the given node
+    """
+    parents_ids = tensor_net.graph.predecessors(node.id)  # iterator
     parents = []
     for p_id in parents_ids:
-        parents.append(tn.all_nodes[p_id])
+        parents.append(tensor_net.all_nodes[p_id])
     return parents
 
 
-def cx_single_node(tn: TensorNetwork, other_tn: TensorNetwork):
-    tn_cx_nodes = tn.get_cx_nodes()
+def cx_single_node(tensor_net: TensorNetwork, other_tn: TensorNetwork):
+    """
+    Does single node (only swaps one node) crossover between two tensor networks.
+    :param tensor_net: one of the two networks
+    :param other_tn: the second network
+    :return:
+    """
+    tn_cx_nodes = tensor_net.get_cx_nodes()
     other_cx_nodes = other_tn.get_cx_nodes()
 
     if len(tn_cx_nodes) == 0 or len(other_cx_nodes) == 0:
@@ -374,9 +510,8 @@ def cx_single_node(tn: TensorNetwork, other_tn: TensorNetwork):
     other_node_id = random.choice(list(other_cx_nodes.keys()))
     other_node = other_cx_nodes[other_node_id]
 
-    tn.delete_node(node_id=tn_node_id, replacement_node=other_node)
+    tensor_net.delete_node(node_id=tn_node_id, replacement_node=other_node)
     other_tn.delete_node(node_id=other_node_id, replacement_node=tn_node)
-
 
 # def cx_chain(tn: TensorNetwork, other_tn: TensorNetwork):
 #     tn_cx_nodes = tn.get_cx_nodes()

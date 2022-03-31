@@ -1,40 +1,70 @@
+"""This module contains the main evolution loop"""
+
+import json
 import random
 import numpy
 import ray
 from deap import creator, base, tools
 from matplotlib import pyplot as plt
+
+import tensor_encoder
+
 from ActorPoolExtension import ActorPoolExtension
-import config_utils
 import tensor_network
 import tensor_node
+import evo_config
 
 
-def setup_creator():
+def _setup_creator():
+    # pylint: disable=E1101
     creator.create("FitnessMax", base.Fitness, weights=(1.0,))
     creator.create("Individual", list, fitness=creator.FitnessMax)
 
 
-@ray.remote(num_cpus=1)
+_setup_creator()
+
+
+# @ray.remote(num_cpus=config_utils.config['remote_actor_cpus'])
 class RemoteEvoActor:
-    def __init__(self, data, remote_config: dict):
+    """This class is a Ray remote actor.
+    This actor performs evaluation on individuals in the population."""
+
+    def __init__(self, data):
+        """initialize an actor
+
+            Args:
+                data: data which will be passed to the model.fit method for training. Must be
+                    a tuple of form (x_train, y_train, x_test, y_test)
+            """
+
         self.data = data
-        self.remote_config = remote_config
 
     def eval(self, individual: list):
+        """Remote evaluation function, evaluates and individual's fitness.
+        The individual is evaluated by compiling and training a model based on
+        the individual's genome. The test accuracy is used as the fitness (minus
+        a penalty for model complexity)
+
+         Args:
+             individual: An individual from the population
+             """
+
+        config = individual[0]
         x_train, y_train, x_test, y_test = self.data
-        tn = individual[1]
-        model = tn.build_model()
-        model.compile(loss=self.remote_config['loss'],
-                      optimizer=self.remote_config['opt'],
-                      metrics=self.remote_config['metrics'])
-        model.fit(x_train, y_train, epochs=self.remote_config['epochs'],
-                  callbacks=self.remote_config['callbacks'])
-        test_loss, test_acc = model.evaluate(x_test, y_test)
+        tensor_net = individual[1]
+        model = tensor_net.build_model()
+        model.compile(loss=config.loss,
+                      optimizer=config.opt,
+                      metrics=config.config['metrics'])
+        model.fit(x_train, y_train, epochs=config.config['epochs'],
+                  callbacks=config.callbacks)
+        _, test_acc = model.evaluate(x_test, y_test)
 
         length = len(individual[1].get_middle_nodes())
-        complexity_penalty = self.remote_config['complexity_penalty']
+        complexity_penalty = config.config['complexity_penalty']
         penalty = complexity_penalty * length
-        return (test_acc - penalty),
+        # noinspection PyRedundantParentheses
+        return (test_acc - penalty,)
 
 
 # def cx_chain(ind1, ind2):
@@ -45,213 +75,366 @@ class RemoteEvoActor:
 
 
 class EvolutionWorker:
+    """Main class which drives evolution. Contains
+    relevant methods for setting itself up, building a population,
+    executing mutation and crossover, etc."""
+
     def __init__(self):
         self.record = None
         self.logbook = None
         self.stats = None
         self.pop = None
         self.pool = None
-        setup_creator()
+        # _setup_creator()
         self.toolbox = base.Toolbox()
-        self.setup_toolbox()
-        self.setup_stats()
-        self.setup_log()
+        self._setup_stats()
+        self._setup_log()
+        self.master_config = evo_config.master_config
 
-    def get_remote_config(self) -> dict:
-        remote_config = {}
-        remote_config['loss'] = config_utils.loss
-        remote_config['metrics'] = config_utils.config['metrics']
-        remote_config['opt'] = config_utils.opt
-        remote_config['epochs'] = config_utils.config['max_fit_epochs']
-        remote_config['callbacks'] = config_utils.callbacks
-        remote_config['complexity_penalty'] = config_utils.config['complexity_penalty']
-        return remote_config
+    def update_master_config(self, config):
+        """Updates the configuration based on user input.
 
-    def setup_toolbox(self):
-        self.toolbox.register("individual", self.initialize_ind,
-                              input_shapes=config_utils.config['input_shapes'],
-                              num_outputs=config_utils.config['num_outputs'])
+                Args:
+                    config: either a dictionary or a yaml file
+                    that contains configuration information
+        """
+        self.master_config.setup_user_config(config)
+
+    def _setup_toolbox(self):
+        # pylint: disable=E1101
+        self.toolbox.register("individual", self._initialize_ind,
+                              input_shapes=self.master_config.config['input_shapes'],
+                              num_outputs=self.master_config.config['num_outputs'])
         self.toolbox.register("population", tools.initRepeat, list, self.toolbox.individual)
-        self.toolbox.register("mate", self.cx_single_node)
-        self.toolbox.register("mutate_insert", self.mutate_insert)
-        self.toolbox.register("mutate_delete", self.mutate_delete)
-        self.toolbox.register("mutate_mutate", self.mutate_mutate)
-        self.toolbox.register("select", tools.selTournament, tournsize=config_utils.config['t_size'])
+        self.toolbox.register("mate", self._cx_single_node)
+        self.toolbox.register("cx_hyper", self._cx_hyper)
+        self.toolbox.register("mutate_insert", self._mutate_insert)
+        self.toolbox.register("mutate_delete", self._mutate_delete)
+        self.toolbox.register("mutate_mutate", self._mutate_mutate)
+        self.toolbox.register("mutate_hyper", self._mutate_hyper)
+        self.toolbox.register("select", tools.selTournament,
+                              tournsize=self.master_config.config['t_size'])
 
-    def setup_stats(self):
+    def _setup_stats(self):
         self.stats = tools.Statistics(key=lambda ind: ind.fitness.values)
         self.stats.register("avg", numpy.mean)
         # stats.register("std", numpy.std)
         self.stats.register("min", numpy.min)
         self.stats.register("max", numpy.max)
 
-    def setup_log(self):
+    def _setup_log(self):
         self.logbook = tools.Logbook()
         self.logbook.header = "gen", "avg", "max", "min"
 
     def plot(self):
+        """Basic method for plotting fitness at each generation"""
         gen, avg = self.logbook.select("gen"), self.logbook.select("avg")
-        fig, ax = plt.subplots()
-        ax.plot(gen, avg, "g-", label="Avg Fitness")
-        ax.set_xlabel("Generation")
-        ax.set_ylabel("Fitness", color="b")
+        _, axis = plt.subplots()
+        axis.plot(gen, avg, "g-", label="Avg Fitness")
+        axis.set_xlabel("Generation")
+        axis.set_ylabel("Fitness", color="b")
         plt.show()
 
-    @staticmethod
-    def initialize_ind(input_shapes, num_outputs) -> list:
+    def _initialize_ind(self, input_shapes, num_outputs) -> list:
+        # pylint: disable=E1101
         ind = creator.Individual()
-        hyper_params = []
-        tn = tensor_network.TensorNetwork(input_shapes, num_outputs)
-        ind.append(hyper_params)
-        ind.append(tn)
+        individual_config = self.master_config.clone()
+        tensor_net = tensor_network.TensorNetwork(input_shapes, num_outputs)
+        ind.append(individual_config)
+        ind.append(tensor_net)
         return ind
 
     @staticmethod
-    def eval_remote(actor: RemoteEvoActor, individual: list):
+    def _eval_remote(actor: RemoteEvoActor, individual: list):
         individual = list(individual)
         return actor.eval.remote(individual)
 
     @staticmethod
-    def evaluate(individual: list, data: tuple):
+    def _evaluate(individual: list, data: tuple):
         x_train, y_train, x_test, y_test = data
-        tn = individual[1]
+        config = individual[0]
+        tensor_net = individual[1]
 
-        model = tn.build_model()
-        model.compile(loss=config_utils.loss, optimizer=config_utils.opt,
-                      metrics=config_utils.config['metrics'])
+        model = tensor_net.build_model()
 
-        if config_utils.config['global_cache_training']:
-            tn.store_weights(model, direction_into_tn=False)
+        model.compile(loss=config.loss, optimizer=config.opt,
+                      metrics=config.config['metrics'])
 
-        model.fit(x_train, y_train, epochs=config_utils.config['max_fit_epochs'],
-                  callbacks=config_utils.callbacks)
-        test_loss, test_acc = model.evaluate(x_test, y_test)
+        if config.config['global_cache_training']:
+            tensor_net.store_weights(model, direction_into_tn=False)
 
-        if config_utils.config['global_cache_training']:
-            tn.store_weights(model, direction_into_tn=True)
+        model.fit(x_train, y_train, epochs=config.config['max_fit_epochs'],
+                  callbacks=config.callbacks, verbose=config.config['verbose'])
+        _, test_acc = model.evaluate(x_test, y_test)
+
+        if config.config['global_cache_training']:
+            tensor_net.store_weights(model, direction_into_tn=True)
 
         length = len(individual[1].get_middle_nodes())
-        penalty = config_utils.config['complexity_penalty'] * length
-
-        return test_acc - penalty,
+        penalty = config.config['complexity_penalty'] * length
+        # noinspection PyRedundantParentheses
+        return (test_acc - penalty,)
 
     @staticmethod
-    def mutate_insert(individual: list):
-        tn = individual[1]
-        position = random.randint(0, len(tn.get_valid_insert_positions()) - 1)
-        node_type = random.choice(config_utils.config['valid_node_types'])
+    def _mutate_insert(individual: list):
+        config = individual[0]
+        tensor_net = individual[1]
+        position = random.randint(0, len(tensor_net.get_valid_insert_positions()) - 1)
+        node_type = random.choice(config.config['valid_node_types'])
         node = tensor_node.create(node_type)
-        tn.insert_node(node, position)
-        return individual,
+        tensor_net.insert_node(node, position)
+        # noinspection PyRedundantParentheses
+        return (individual,)
 
     @staticmethod
-    def mutate_mutate(individual: list):
-        tn = individual[1]
-        length = len(tn.get_mutatable_nodes())
+    def _mutate_mutate(individual: list):
+        tensor_net = individual[1]
+        length = len(tensor_net.get_mutatable_nodes())
 
         if length == 0:  # nothing to mutate
-            return individual,
+            # noinspection PyRedundantParentheses
+            return (individual,)
 
         position = random.randint(0, length - 1)
-        tn.mutate_node(position)
-        return individual,
+        tensor_net.mutate_node(position)
+        # noinspection PyRedundantParentheses
+        return (individual,)
 
     @staticmethod
-    def mutate_delete(individual: list):
-        tn = individual[1]
-        length = len(tn.get_middle_nodes())
+    def _mutate_delete(individual: list):
+        tensor_net = individual[1]
+        length = len(tensor_net.get_middle_nodes())
 
         if length == 0:  # nothing to delete
-            return individual,
+            # noinspection PyRedundantParentheses
+            return (individual,)
 
         position = random.randint(0, length - 1)
-        node_id = list(tn.get_middle_nodes().keys())[position]
-        tn.delete_node(node_id=node_id)
-        return individual,
+        node_id = list(tensor_net.get_middle_nodes().keys())[position]
+        tensor_net.delete_node(node_id=node_id)
+        # noinspection PyRedundantParentheses
+        return (individual,)
 
     @staticmethod
-    def cx_single_node(ind1, ind2):
-        tn = ind1[1]
-        other_tn = ind2[1]
-        tensor_network.cx_single_node(tn, other_tn)
+    def _mutate_hyper(individual: list):
+        ind_hyper_params = individual[0]
+        ind_hyper_params.mutate()
+        # noinspection PyRedundantParentheses
+        return (individual,)
+
+    @staticmethod
+    def _cx_hyper(ind1, ind2):
+        hyper1 = ind1[0]
+        hyper2 = ind2[0]
+        evo_config.cross_over(hyper1, hyper2)
+        return ind1, ind2
+
+    @staticmethod
+    def _cx_single_node(ind1, ind2):
+        tensor_net = ind1[1]
+        other_net = ind2[1]
+        tensor_network.cx_single_node(tensor_net, other_net)
         return ind1, ind2
 
     def evolve(self, data):
-        if not config_utils.config['remote']:
-            self.toolbox.register("evaluate", self.evaluate, data=data)
+        """Main evolution method. Call to begin evolution.
+
+        Args:
+                data: data which will be passed to the model.fit method for training. Must be
+                    a tuple of form (x_train, y_train, x_test, y_test)
+        """
+        # pylint: disable=E1101
+
+        if not self.master_config.config['remote']:
+            self.toolbox.register("evaluate", self._evaluate, data=data)
         else:
             ray.init()
             actors = []
-            for _ in range(config_utils.config['remote_actors']):
-                actor = RemoteEvoActor.remote(data, self.get_remote_config())
+            for _ in range(self.master_config.config['remote_actors']):
+                actor = RemoteEvoActor.remote(data)
                 actors.append(actor)
 
             self.pool = ActorPoolExtension(actors)
-            self.toolbox.register("evaluate", self.eval_remote)
+            self.toolbox.register("evaluate", self._eval_remote)
 
         self._evolve()
 
-    def _evolve(self):
-        self.pop = self.toolbox.population(n=config_utils.config['pop_size'])
+    def _crossover_on_population(self, offspring: list):
+        # pylint: disable=E1101
 
-        # Evaluate the entire population
-        if config_utils.config['remote']:
-            fitnesses = self.pool.map_ordered_return_all(self.toolbox.evaluate, self.pop)
-        else:
-            fitnesses = list(map(self.toolbox.evaluate, self.pop))
+        # Apply crossover
+        for child1, child2 in zip(offspring[::2], offspring[1::2]):
+            cx_min = min((child1[0]).config['cx'], (child2[0]).config['cx'])
+            if random.random() < cx_min:
+                self.toolbox.mate(child1, child2)
+                del child1.fitness.values
+                del child2.fitness.values
 
-        for ind, fit in zip(self.pop, fitnesses):
-            ind.fitness.values = fit
-
-        for gen in range(config_utils.config['ngen']):
-            # Select the next generation individuals
-            offspring = self.toolbox.select(self.pop, len(self.pop))
-            # Clone the selected individuals
-            offspring = list(map(self.toolbox.clone, offspring))
-
-            # Apply crossover
-            for child1, child2 in zip(offspring[::2], offspring[1::2]):
-                if random.random() < config_utils.config['cx']:
-                    self.toolbox.mate(child1, child2)
+            if self.master_config.config['evolve_hyperparams']:
+                hyper_cx_min = min((child1[0]).config['hyper_cx'], (child2[0]).config['hyper_cx'])
+                if random.random() < hyper_cx_min:
+                    self.toolbox.cx_hyper(child1, child2)
                     del child1.fitness.values
                     del child2.fitness.values
 
-            # apply mutation
-            for mutant in offspring:
-                if random.random() < config_utils.config['m_insert']:
-                    self.toolbox.mutate_insert(mutant)
+    def _mutation_on_population(self, offspring: list):
+        # pylint: disable=E1101
+
+        # apply mutation
+        for mutant in offspring:
+            mutant_hyper = mutant[0]
+
+            if random.random() < mutant_hyper.config['m_insert']:
+                self.toolbox.mutate_insert(mutant)
+                del mutant.fitness.values
+
+            if random.random() < mutant_hyper.config['m_del']:
+                self.toolbox.mutate_delete(mutant)
+                del mutant.fitness.values
+
+            if random.random() < mutant_hyper.config['m_mut']:
+                self.toolbox.mutate_mutate(mutant)
+                del mutant.fitness.values
+
+            if self.master_config.config['evolve_hyperparams']:
+                if random.random() < mutant_hyper.config['hyper_mut']:
+                    self.toolbox.mutate_hyper(mutant)
                     del mutant.fitness.values
 
-                if random.random() < config_utils.config['m_del']:
-                    self.toolbox.mutate_delete(mutant)
-                    del mutant.fitness.values
+    def _gen_bookkeeping(self, gen):
+        self.record = self.stats.compile(self.pop)
+        self.logbook.record(gen=gen, **self.record)
+        print('\n')
+        print(self.logbook.header)
+        print(self.logbook.stream)
+        print('\n')
 
-                if random.random() < config_utils.config['m_mut']:
-                    self.toolbox.mutate_mutate(mutant)
-                    del mutant.fitness.values
+    def _evolve(self):
+        # pylint: disable=E1101
+
+        # set up toolbox
+        self._setup_toolbox()
+
+        # build population
+        if self.pop is None:
+            self.pop = self.toolbox.population(n=self.master_config.config['pop_size'])
+
+        # Evaluate the entire population
+        if self.master_config.config['remote']:
+            fitnesses = self.pool.map_ordered_return_all(self.toolbox.evaluate, self.pop)
+        else:
+            fitnesses = list(map(self.toolbox.evaluate, self.pop))
+        for ind, fit in zip(self.pop, fitnesses):
+            ind.fitness.values = fit
+
+        # Begin main evolution loop
+        for gen in range(self.master_config.config['ngen']):
+            # Select the next generation individuals
+            offspring = self.toolbox.select(self.pop, len(self.pop))
+
+            # Clone the selected individuals
+            offspring = list(map(self.toolbox.clone, offspring))
+
+            # apply operators
+            self._crossover_on_population(offspring)
+            self._mutation_on_population(offspring)
 
             # Evaluate the individuals with an invalid fitness
             invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-
-            if config_utils.config['remote']:
+            if self.master_config.config['remote']:
                 fitnesses = self.pool.map_ordered_return_all(self.toolbox.evaluate, invalid_ind)
             else:
                 fitnesses = list(map(self.toolbox.evaluate, invalid_ind))
-
             for ind, fit in zip(invalid_ind, fitnesses):
                 ind.fitness.values = fit
+
             # The population is entirely replaced by the offspring
             self.pop[:] = offspring
-            self.record = self.stats.compile(self.pop)
-            self.logbook.record(gen=gen, **self.record)
-            print('\n')
-            print(self.logbook.header)
-            print(self.logbook.stream)
-            print('\n')
+
+            # Record and print info about this generation
+            self._gen_bookkeeping(gen)
+
+            # save data to disk
+            self._save(gen)
 
         print("-- End of (successful) evolution --")
 
         best_ind = tools.selBest(self.pop, 1)[0]
         print("Best individual is %s" % best_ind.fitness.values)
         best_ind[1].build_model().summary()
-        #self.plot()
+        # self.plot()
+
+    def _save(self, gen):
+        if (gen % self.master_config.config['save_pop_every']) == 0:
+            self.save(self.master_config.config['save_pop_filepath'])
+
+    def serialize(self) -> dict:
+        """Currently just saves the population and master config"""
+        serial_dict = {}
+        serial_dict['pop'] = self.serialize_pop()
+        serial_dict['master_config'] = self.master_config.serialize()
+        return serial_dict
+
+    def save(self, filename: str):
+        """Saves object to file as json. Currently, just save population and master config
+        Args:
+            filename: full filepath to save to
+        """
+        with open(filename, 'w+', encoding='latin-1') as file:
+            json.dump(self, fp=file, cls=tensor_encoder.TensorEncoder)
+
+    @staticmethod
+    def load(filename: str):
+        """Builds an object from a json file
+        Args:
+            filename: full path to saved json file
+        """
+
+        with open(filename, 'r', encoding='latin-1') as file:
+            serial_dict = json.load(file)
+            loaded_evo_worker = EvolutionWorker.deserialize(serial_dict)
+            return loaded_evo_worker
+
+    @staticmethod
+    def deserialize(serial_dict: dict):
+        """Rebuild object from a dict"""
+        new_worker = EvolutionWorker()
+        new_worker.master_config = serial_dict['master_config']
+        new_worker.pop = EvolutionWorker.deserialize_pop(serial_dict['pop'])
+        return new_worker
+
+    def serialize_pop(self) -> list:
+        """Converts population to serializable form"""
+        pop = []
+        for individual in self.pop:
+            pop.append(self.serialize_individual(individual))
+        return pop
+
+    @staticmethod
+    def serialize_individual(individual) -> list:
+        """Converts an individual of the population to serial form"""
+        serial_individual = []
+        serial_individual.append(individual[0].serialize())
+        serial_individual.append(individual[1].serialize())
+        serial_individual.append(list(individual.fitness.values))
+        return serial_individual
+
+    @staticmethod
+    def deserialize_individual(serial_individual: list):
+        """Rebuilds an individual from serial form"""
+        # pylint: disable=E1101
+        new_ind = creator.Individual()
+        individual_config = evo_config.EvoConfig.deserialize(serial_individual[0])
+        tensor_net = tensor_network.TensorNetwork.deserialize(serial_individual[1])
+        new_ind.append(individual_config)
+        new_ind.append(tensor_net)
+        new_ind.fitness.values = tuple(serial_individual[2])
+        return new_ind
+
+    @staticmethod
+    def deserialize_pop(serial_pop: list) -> list:
+        """Rebuilds population from serial form"""
+        new_pop = []
+        for serial_individual in serial_pop:
+            new_pop.append(EvolutionWorker.deserialize_individual(serial_individual))
+        return new_pop

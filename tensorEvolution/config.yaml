@@ -87,5 +87,5 @@ mutatable_keys: ['cx', 'm_mut', 'm_insert', 'm_del', 'hyper_cx',
 # Save settings
 ####
 save_pop_every: 5 # save population to disk every n generations
-save_pop_filepath: 'C:\Users\arjud\PycharmProjects\pythonProject\pop_save.txt'
+save_pop_filepath: ''
 ...

@@ -1,6 +1,6 @@
+"""MNIST example using tensorflow dataset"""
 import tensorflow as tf
-import tensor_evolution
-
+from tensorEvolution import tensor_evolution
 
 mnist = tf.keras.datasets.mnist
 

@@ -364,6 +364,10 @@ class EvolutionWorker:
         best_ind[1].build_model().summary()
         # self.plot()
 
+    def get_best_individual(self):
+        """Returns the best individual in the population"""
+        return tools.selBest(self.pop, 1)[0]
+
     def _save(self, gen):
         if (gen % self.master_config.config['save_pop_every']) == 0:
             self.save(self.master_config.config['save_pop_filepath'])

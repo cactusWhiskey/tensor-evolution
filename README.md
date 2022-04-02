@@ -1,7 +1,11 @@
 # Tensor Evolution
 Tensor-Evolution is a library for evolving neural network topology using a genetic algorithm. This library currently 
 uses [Deap](https://github.com/DEAP/deap) as its evolutionary backend, and [Tensorflow](https://github.com/tensorflow/tensorflow) 
-for the neural networks. 
+for the neural networks.<br>
+
+Note that this library doesn't build networks a single neuron at a time, or anything like that. 
+The basic building blocks are entire layers.
+
 
 ## Philosophy
 Population members start as the input layer connected directly to the output layer. Mutation operators exist for 
@@ -10,6 +14,9 @@ crossover operator is also implemented.
 
 Fitness is evaluated by building, compiling, and training a model from each population member's genome. 
 Training is done the standard way (i.e. via backpropagation, not through any evolutionary means).
+
+Note that most layer types can be added amost anywhere in the genome. If the input shape isn't right, it's corrected 
+(attempts are made to correct it intelligently, but if required it's forced to fit). 
 
 ## Supported Layer Types
 

@@ -32,7 +32,7 @@ class TensorNode(ABC):
         :return dict that can be serialized
         """
         saved_layers = self.saved_layers
-        self.saved_layers= None
+        self.saved_layers = None
         serial_dict = copy.deepcopy(self.__dict__)
         self.saved_layers = saved_layers
         return serial_dict
@@ -132,6 +132,7 @@ class TensorNode(ABC):
 
 class InputNode(TensorNode):
     """Node which represents nn inputs in the genome"""
+
     def __init__(self, input_shape: tuple):
         super().__init__()
         self.input_shape = input_shape
@@ -163,6 +164,7 @@ class InputNode(TensorNode):
 
 class FlattenNode(TensorNode):
     """Implements flatten layer as a genome node"""
+
     def _build(self, layers_so_far: KerasTensor):
         return tf.keras.layers.Flatten()(layers_so_far)
 
@@ -178,6 +180,7 @@ class FlattenNode(TensorNode):
 
 class AdditionNode(TensorNode):
     """Implements addition layer as a genome node"""
+
     def __init__(self):
         super().__init__()
         self.is_branch_termination = True
@@ -246,6 +249,7 @@ class AdditionNode(TensorNode):
 
 class DenseNode(TensorNode):
     """Implements dense layer as a genome node"""
+
     def __init__(self, num_units: int, activation='relu'):
         super().__init__()
         self.num_units = num_units
@@ -290,6 +294,7 @@ class DenseNode(TensorNode):
 
 class Conv2dNode(TensorNode):
     """Implements convolution 2d layer as genome node"""
+
     def __init__(self, filters, kernel_size, padding='same'):
         super().__init__()
         self.filters = filters
@@ -338,6 +343,7 @@ class Conv2dNode(TensorNode):
 
 class ReluNode(TensorNode):
     """Implements relu layer as genome node"""
+
     def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
         return tf.keras.layers.ReLU()(layers_so_far)
 
@@ -353,6 +359,7 @@ class ReluNode(TensorNode):
 
 class BatchNormNode(TensorNode):
     """Implements batch norm node type"""
+
     def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
         return tf.keras.layers.BatchNormalization()(layers_so_far)
 
@@ -366,10 +373,37 @@ class BatchNormNode(TensorNode):
         return BatchNormNode()
 
 
+class DropoutNode(TensorNode):
+    """Implements dropout layer"""
+
+    def __init__(self):
+        super().__init__()
+        self.rate = random.uniform(0.0, 0.9)
+        self.can_mutate = True
+
+    @staticmethod
+    def create_random():
+        """Creates and returns a new DropoutNode"""
+        return DropoutNode()
+
+    def clone(self):
+        """Creates a new DropoutNode and sets its rate equal to this node's rate"""
+        new_node = DropoutNode()
+        new_node.rate = copy.copy(self.rate)
+        return new_node
+
+    def _build(self, layers_so_far) -> KerasTensor:
+        return tf.keras.layers.Dropout(self.rate)
+
+    def mutate(self):
+        self.rate = random.uniform(0.0, 0.9)
+
+
 class OutputNode(TensorNode):
     """Node which represents NN output layer in the genome. Ultimately this is
     a dense layer with a number of units specified by the problem being studied.
     Always has linear activation. Always flattens before the final dense layer."""
+
     def __init__(self, num_outputs):
         super().__init__()
         self.num_outputs = num_outputs
@@ -395,6 +429,7 @@ class OutputNode(TensorNode):
 
 class MaxPool2DNode(TensorNode):
     """Implements max pooling as genome node"""
+
     def __init__(self, pool_size=(2, 2), padding="valid"):
         super().__init__()
         self.pool_size = pool_size
@@ -447,6 +482,8 @@ def create(node_type: str) -> TensorNode:
         return InputNode(None)
     elif node_type == "OutputNode":
         return OutputNode(None)
+    elif node_type == "DropoutNode":
+        return DropoutNode()
     else:
         raise ValueError("Unsupported node type: " + str(node_type))
 

@@ -10,7 +10,6 @@ Note that this library doesn't build networks a single neuron at a time, the bas
 
 ## Philosophy
 
-
 Population members start as the input layer connected directly to the output layer. Mutation operators exist for 
 inserting layers (from a list of supported types), deleting layers, and for mutating existing layers' properties. A 
 crossover operator is also implemented.
@@ -103,3 +102,8 @@ Very much still a work in progress, (as is this readme), but it is functional. T
 | [graphviz](https://github.com/graphp/graphviz)         | [MIT License](https://github.com/graphp/graphviz/blob/master/LICENSE)                          |
 
 
+## MNIST Results
+
+The best individual after running MNIST with a population of 20 individuals for 15 generations:
+
+![MNIST Genome](/doc/images/MNIST.svg)

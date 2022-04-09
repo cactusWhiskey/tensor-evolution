@@ -106,4 +106,6 @@ Very much still a work in progress, (as is this readme), but it is functional. T
 
 The best individual after running MNIST with a population of 20 individuals for 15 generations:
 
-![MNIST Genome](/doc/images/MNIST.svg) | ![MNIST Summary](/doc/images/MNIST_Summary.png)
+![MNIST Genome](/doc/images/MNIST.svg) 
+
+![MNIST Summary](/doc/images/MNIST_Summary.png)

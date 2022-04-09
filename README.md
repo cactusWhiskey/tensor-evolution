@@ -1,6 +1,6 @@
 # Tensor Evolution
 
----
+
 Tensor-Evolution is a library for evolving neural network topology using a genetic algorithm. This library currently 
 uses [Deap](https://github.com/DEAP/deap) as its evolutionary backend, and [Tensorflow](https://github.com/tensorflow/tensorflow) 
 for the neural networks.<br>
@@ -10,7 +10,7 @@ Note that this library doesn't build networks a single neuron at a time, the bas
 
 ## Philosophy
 
----
+
 Population members start as the input layer connected directly to the output layer. Mutation operators exist for 
 inserting layers (from a list of supported types), deleting layers, and for mutating existing layers' properties. A 
 crossover operator is also implemented.
@@ -23,7 +23,7 @@ Note that most layer types can be added amost anywhere in the genome. If the inp
 
 ## Supported Layer Types
 
----
+
 
 This list is currently expanding. So far:
 
@@ -37,13 +37,13 @@ This list is currently expanding. So far:
 
 ## Installation
 
----
+
 At the moment you'll need to clone the source and then either edit one of the examples, or create a new python file 
 and import the *tensor_evolution* module. I am working on getting this project on pip. 
 
 ## Usage
 
----
+
 
 ### Running an Evolution
 Start by importing the *tensor_evolution* module. This is the main driver for the evolution. 
@@ -86,7 +86,7 @@ Mutation rates, valid neural network layer types, **input and output shapes**, e
 
 ## Project Status
 
----
+
 Very much still a work in progress, (as is this readme), but it is functional. The mnist example runs just fine.
 
 ## Dependencies

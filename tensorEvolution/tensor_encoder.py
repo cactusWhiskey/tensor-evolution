@@ -1,10 +1,8 @@
 """JSON encoders for objects in this library"""
 import json
-
-import evo_config
-import tensor_evolution
-import tensor_network
-import tensor_node
+from tensorEvolution import tensor_evolution
+from tensorEvolution import tensor_network
+from tensorEvolution.nodes import tensor_node
 
 
 class TensorEncoder(json.JSONEncoder):
@@ -13,8 +11,6 @@ class TensorEncoder(json.JSONEncoder):
         if isinstance(obj, tensor_node.TensorNode):
             return obj.serialize()
         if isinstance(obj, tensor_network.TensorNetwork):
-            return obj.serialize()
-        if isinstance(obj, evo_config.EvoConfig):
             return obj.serialize()
         if isinstance(obj, tensor_evolution.EvolutionWorker):
             return obj.serialize()

@@ -1,18 +1,19 @@
 """This module contains the main evolution loop"""
 
 import json
+import os
 import random
 import numpy
 import ray
+
 from deap import creator, base, tools
 from matplotlib import pyplot as plt
 
-import tensor_encoder
-
-from ActorPoolExtension import ActorPoolExtension
-import tensor_network
-import tensor_node
-import evo_config
+from tensorEvolution import tensor_encoder
+from tensorEvolution.ActorPoolExtension import ActorPoolExtension
+from tensorEvolution import tensor_network
+from tensorEvolution.nodes import tensor_node, node_utils
+from tensorEvolution import evo_config
 
 
 def _setup_creator():
@@ -24,10 +25,12 @@ def _setup_creator():
 _setup_creator()
 
 
-# @ray.remote(num_cpus=config_utils.config['remote_actor_cpus'])
+# noinspection PyCallingNonCallable
+@ray.remote(num_cpus=evo_config.master_config.config['remote_actor_cpus'])
 class RemoteEvoActor:
     """This class is a Ray remote actor.
     This actor performs evaluation on individuals in the population."""
+    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
     def __init__(self, data):
         """initialize an actor
@@ -56,8 +59,8 @@ class RemoteEvoActor:
         model.compile(loss=config.loss,
                       optimizer=config.opt,
                       metrics=config.config['metrics'])
-        model.fit(x_train, y_train, epochs=config.config['epochs'],
-                  callbacks=config.callbacks)
+        model.fit(x_train, y_train, epochs=config.config['max_fit_epochs'],
+                  callbacks=config.callbacks, verbose=config.config['verbose'])
         _, test_acc = model.evaluate(x_test, y_test)
 
         length = len(individual[1].get_middle_nodes())
@@ -176,12 +179,28 @@ class EvolutionWorker:
         return (test_acc - penalty,)
 
     @staticmethod
-    def _mutate_insert(individual: list):
+    def _is_too_big(individual) -> bool:
         config = individual[0]
         tensor_net = individual[1]
+
+        size = len(tensor_net.get_middle_nodes())
+        max_size = config.config['max_network_size']
+
+        if size >= max_size:
+            return True
+        return False
+
+    @staticmethod
+    def _mutate_insert(individual: list):
+        if EvolutionWorker._is_too_big(individual):
+            return
+
+        config = individual[0]
+        tensor_net = individual[1]
+
         position = random.randint(0, len(tensor_net.get_valid_insert_positions()) - 1)
         node_type = random.choice(config.config['valid_node_types'])
-        node = tensor_node.create(node_type)
+        node = node_utils.create(node_type)
         tensor_net.insert_node(node, position)
         # noinspection PyRedundantParentheses
         return (individual,)
@@ -403,7 +422,7 @@ class EvolutionWorker:
     def deserialize(serial_dict: dict):
         """Rebuild object from a dict"""
         new_worker = EvolutionWorker()
-        new_worker.master_config = serial_dict['master_config']
+        new_worker.master_config = evo_config.EvoConfig.deserialize(serial_dict['master_config'])
         new_worker.pop = EvolutionWorker.deserialize_pop(serial_dict['pop'])
         return new_worker
 
@@ -442,3 +461,5 @@ class EvolutionWorker:
         for serial_individual in serial_pop:
             new_pop.append(EvolutionWorker.deserialize_individual(serial_individual))
         return new_pop
+
+

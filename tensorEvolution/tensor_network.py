@@ -6,9 +6,10 @@ import time
 import random
 import tensorflow as tf
 import networkx as nx
+import pydot
 from matplotlib import pyplot as plt
-import tensor_encoder
-import tensor_node
+from tensorEvolution import tensor_encoder
+from tensorEvolution.nodes import tensor_node, io_nodes, node_utils
 
 
 class TensorNetwork:
@@ -47,10 +48,12 @@ class TensorNetwork:
             """
         tensor_net = TensorNetwork(None, None, False)
         tensor_net.__dict__ = tn_dict
+        tensor_net.net_id = int(tensor_net.net_id)
+        tensor_net.all_nodes = {int(k): v for (k, v) in tensor_net.all_nodes.items()}
         tensor_net.graph = nx.node_link_graph(tn_dict['graph'])
 
         for node_id, serial_node in tensor_net.all_nodes.items():
-            tensor_net.all_nodes[node_id] = tensor_node.TensorNode.deserialize(serial_node)
+            tensor_net.all_nodes[node_id] = node_utils.deserialize_node(serial_node)
 
         for index, shape in enumerate(tensor_net.input_shapes):
             tensor_net.input_shapes[index] = tuple(shape)
@@ -83,12 +86,12 @@ class TensorNetwork:
             raise ValueError("Multiple inputs not yet supported")
 
         for shape in input_shapes:
-            node = tensor_node.InputNode(shape)
+            node = io_nodes.InputNode(shape)
             self.register_node(node)
 
     def _create_outputs(self, output_units: list):
         for units in output_units:
-            node = tensor_node.OutputNode(units)
+            node = io_nodes.OutputNode(units)
             self.register_node(node)
 
             for input_id in self.input_ids:
@@ -438,14 +441,18 @@ class TensorNetwork:
     def __len__(self):
         return len(self.all_nodes)
 
-    def draw_graphviz(self):
+    def draw_graphviz_svg(self, filepath=None):
         """
         Saves a graph png to file of this genome
         :return:
         """
-        py_graph = nx.nx_agraph.to_agraph(self.graph)
-        py_graph.layout('dot')
-        py_graph.draw(f'tensor_net_{self.net_id}_{time.time()}.png')
+        graph = nx.drawing.nx_pydot.to_pydot(self.graph)
+
+        if filepath is None:
+            path = f'tensor_net_{self.net_id}_{time.time()}.png'
+        else:
+            path = filepath
+        graph.write_svg(path)
 
     def plot(self):
         """

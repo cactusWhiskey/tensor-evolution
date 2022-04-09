@@ -15,7 +15,7 @@ num_outputs: [10]
 ####
 # Ray remote settings
 ####
-remote: False #run using Ray remote actors
+remote: True #run using Ray remote actors
 remote_actors: 3 #number of actors to use for remote execution
 remote_actor_cpus: 1
 
@@ -31,17 +31,23 @@ backend: "tf" #library used to build and train neural networks
 ####
 #Valid nodes to use in genomes
 valid_node_types: ["DenseNode", "ReluNode", "BatchNormNode",
-                   "MaxPool2DNode", "Conv2dNode", "AdditionNode", "FlattenNode"]
+                   "MaxPool2DNode", "Conv2dNode", "AdditionNode", "FlattenNode",
+                   "DropoutNode", "Conv3dNode", "MaxPool3DNode", "LstmNode"]
 
 #Controls max size of dense layers. Dense layer sizes are always a power of 2.
 dense_max_power_two: 6
-#Conrols max number of filters on Conv2D layers. Number of filters is always a power of 2
-max_conv2d_power: 6
+#Conrols max number of filters on Conv2D, 3D layers. Number of filters is always a power of 2
+max_conv_power: 6
+lstm_power_two: 4
 
 #Valid kernel sizes for Conv2D layers
 conv2d_kernel_sizes: [[1, 1], [2, 2], [3, 3], [4, 4], [5, 5]]
 #Valid sizes for max pooling 2D layers
-max_pooling_size: [[2, 2], [3, 3]]
+max_pooling_size2D: [[2, 2], [3, 3]]
+#Valid kernel sizes for Conv3D layers
+conv3d_kernel_sizes: [[1, 1, 1], [2, 2, 2], [3, 3, 3], [4, 4, 4], [5, 5, 5]]
+#Valid sizes for max pooling 3D layers
+max_pooling_size3D: [[2, 2, 2], [3, 3, 3]]
 
 #If True then layers will attempt to save their trained weights across generations
 global_cache_training: True
@@ -54,10 +60,11 @@ cx: 0.4 #cross over prob
 m_insert: 0.3 #prob to insert a new layer into a genome
 m_del: 0.1 #prob to delete a layer from a genome
 m_mut: 0.2 #prob to mutate an existing layer in a genome
-pop_size: 30 #population size
+pop_size: 20 #population size
 t_size: 3 #tournament size
 ngen: 30 #generations to run evolution for
 complexity_penalty: 0.002 #penelty to fitness based on genome size. Calculated as penalty*genome length
+max_network_size: 10 #maximum size of the generated neural networks
 
 
 ####
@@ -67,7 +74,7 @@ opt: {optimizer: 'adam', learning_rate: 0.001} #optimizer
 learning_rates: [0.0001, 0.001, 0.01, 0.1]
 loss: 'SparseCategoricalCrossentropy' #loss function
 metrics: ['accuracy'] #metrics for neural network model
-max_fit_epochs: 5 #max number of epochs to train a genome for
+max_fit_epochs: 1 #max number of epochs to train a genome for
 early_stopping: {use_early: True, monitor: 'loss', patience: 2 ,min_delta: 0.02}
 verbose: 0
 
@@ -86,6 +93,6 @@ mutatable_keys: ['cx', 'm_mut', 'm_insert', 'm_del', 'hyper_cx',
 ####
 # Save settings
 ####
-save_pop_every: 5 # save population to disk every n generations
-save_pop_filepath: ''
+save_pop_every: 1 # save population to disk every n generations
+save_pop_filepath: 'pop9.txt'
 ...

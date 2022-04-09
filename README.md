@@ -1,15 +1,18 @@
 # Tensor Evolution
+
+---
 Tensor-Evolution is a library for evolving neural network topology using a genetic algorithm. This library currently 
 uses [Deap](https://github.com/DEAP/deap) as its evolutionary backend, and [Tensorflow](https://github.com/tensorflow/tensorflow) 
 for the neural networks.<br>
 
-Note that this library doesn't build networks a single neuron at a time, or anything like that. 
-The basic building blocks are entire layers.
+Note that this library doesn't build networks a single neuron at a time, the basic building blocks are entire layers.
 
 
 ## Philosophy
+
+---
 Population members start as the input layer connected directly to the output layer. Mutation operators exist for 
-inserting layers (from a list of supported types), deleting layers, and for mutating existing layer's properties. A 
+inserting layers (from a list of supported types), deleting layers, and for mutating existing layers' properties. A 
 crossover operator is also implemented.
 
 Fitness is evaluated by building, compiling, and training a model from each population member's genome. 
@@ -20,21 +23,27 @@ Note that most layer types can be added amost anywhere in the genome. If the inp
 
 ## Supported Layer Types
 
+---
+
 This list is currently expanding. So far:
 
 - Dense
 - ReLu
-- Conv2D
-- Maxpool2D
+- Conv2D, 3D
+- Maxpool2D, 3D
 - Addition
 - BatchNorm
 - Flatten
 
 ## Installation
+
+---
 At the moment you'll need to clone the source and then either edit one of the examples, or create a new python file 
 and import the *tensor_evolution* module. I am working on getting this project on pip. 
 
 ## Usage
+
+---
 
 ### Running an Evolution
 Start by importing the *tensor_evolution* module. This is the main driver for the evolution. 
@@ -58,6 +67,7 @@ worker.evolve(data=data)
 Please reference the end to end examples for full details.
 
 ### Configuration
+
 Everything is configured via yaml file. For the moment, since you will need to clone the project to use it, 
 just edit the default *config.yaml* file.
 
@@ -75,9 +85,12 @@ pop_size: 30 #population size
 Mutation rates, valid neural network layer types, **input and output shapes**, etc. are all controlled from the config file.
 
 ## Project Status
+
+---
 Very much still a work in progress, (as is this readme), but it is functional. The mnist example runs just fine.
 
 ## Dependencies
+
 | Library                                                | License                                                                                        |
 |--------------------------------------------------------|------------------------------------------------------------------------------------------------|
 | [tensorflow](https://github.com/tensorflow/tensorflow) | [Apache License 2.0](https://github.com/tensorflow/tensorflow/blob/master/LICENSE)             |
@@ -89,4 +102,4 @@ Very much still a work in progress, (as is this readme), but it is functional. T
 | [sympy](https://github.com/sympy/sympy)                | [License Details](https://github.com/sympy/sympy/blob/master/LICENSE)                          |
 | [graphviz](https://github.com/graphp/graphviz)         | [MIT License](https://github.com/graphp/graphviz/blob/master/LICENSE)                          |
 
-## License 
+

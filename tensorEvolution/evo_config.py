@@ -2,10 +2,21 @@
 into the genome as well as utilities for loading configurations from file"""
 import copy
 import json
+import os
 import random
 import tensorflow as tf
 import yaml
-import tensor_encoder
+from configs.__init__ import CONFIG_DIR
+
+
+class EvoEncoder(json.JSONEncoder):
+    """JSON encoders for objects in this module"""
+
+    def default(self, obj):
+        if isinstance(obj, EvoConfig):
+            return obj.serialize()
+            # Let the base class default method raise the TypeError
+        return json.JSONEncoder.default(self, obj)
 
 
 class EvoConfig:
@@ -41,7 +52,7 @@ class EvoConfig:
     def save(self, filename: str):
         """Saves object to file as json"""
         with open(filename, 'w+', encoding='latin-1') as file:
-            json.dump(self, fp=file, cls=tensor_encoder.TensorEncoder)
+            json.dump(self, fp=file, cls=EvoEncoder)
 
     @staticmethod
     def load(filename: str):
@@ -61,7 +72,8 @@ class EvoConfig:
     def get_default_config(self):
         """Load the default evolutionary configuration from file"""
 
-        with open('config.yaml', encoding='latin-1') as file:
+        path = os.path.join(CONFIG_DIR, 'default_config.yaml')
+        with open(path, encoding='latin-1') as file:
             default_config = yaml.safe_load(file)
         self.config = default_config
         self.opt = self.setup_optimizer(self.config)
@@ -198,7 +210,7 @@ class EvoConfig:
         else:
             raise ValueError("Unsupported parameter to mutate: " + str(param_to_mutate))
 
-        print("Mutated: " + param_to_mutate + " to: " + str(self.config[param_to_mutate]))
+        # print("Mutated: " + param_to_mutate + " to: " + str(self.config[param_to_mutate]))
 
     def get_mutatable_params(self) -> dict:
         """Filters all possible hyperparameters for only those which are

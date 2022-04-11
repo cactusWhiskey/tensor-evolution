@@ -33,6 +33,7 @@ This list is currently expanding. So far:
 - Addition
 - BatchNorm
 - Flatten
+- LSTM (experimental)
 
 ## Installation
 
@@ -83,10 +84,40 @@ pop_size: 30 #population size
 
 Mutation rates, valid neural network layer types, **input and output shapes**, etc. are all controlled from the config file.
 
+### Preprocessing
+
+Check the autoMPG example. Evolution workers have a method called "setup_preprocessing". You need to pass it a list of lists, with the innermost lists being your preprocessing layers. It's setup this way so that you can pass it multiple lists of preprocessing layers and have it randomly pick one for each population member. For example:
+
+```
+normalizer = tf.keras.layers.Normalization(axis=-1)
+normalizer.adapt(np.array(train_features))
+
+preprocessing_layers = [[normalizer], [some_other_preprocessing_layers], None]
+```
+
+Notice that you need to adapt the preprocessing layers ahead of time. 
+
+Also, you can pass "None" in if you want to. This will cause some of the population individuals to have no preprocessing layers. Others will have one of the two sets of layers passed in. If you just want every individual to have the same preprocessing layers, do this:
+
+```
+normalizer = tf.keras.layers.Normalization(axis=-1)
+normalizer.adapt(np.array(train_features))
+
+preprocessing_layers = [[normalizer]]
+```
+
 ## Project Status
 
 
 Very much still a work in progress, (as is this readme), but it is functional. The mnist example runs just fine.
+
+### TODO
+
+- get regression example working
+- look into Ray cluster support
+- release on Pypi
+- more examples
+- get time series data functional
 
 ## Dependencies
 

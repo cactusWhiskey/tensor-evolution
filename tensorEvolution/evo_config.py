@@ -28,20 +28,19 @@ class EvoConfig:
         self.loss = None
         self.opt = None
         self.callbacks = None
-        self.recompile = True
 
     def _update_config(self, config: dict):
         for key, value in config.items():
             self.config[key] = value
             if key == 'opt':
                 self.opt = self.setup_optimizer(self.config)
-                self.recompile = True
+
             elif key == 'loss':
                 self.loss = self.setup_loss(self.config)
-                self.recompile = True
+
             elif key == 'early_stopping':
                 self.callbacks = self.setup_callbacks(self.config)
-                self.recompile = True
+
             else:
                 pass
 
@@ -126,6 +125,10 @@ class EvoConfig:
         if passed_config['backend'] == 'tf':
             if loss_str == 'SparseCategoricalCrossentropy':
                 configured_loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+            elif loss_str == 'MeanSquaredError':
+                configured_loss = tf.keras.losses.MeanSquaredError()
+            elif loss_str == 'MeanAbsoluteError':
+                configured_loss = tf.keras.losses.MeanAbsoluteError()
             else:
                 raise ValueError("Unsupported loss function")
         else:
@@ -164,7 +167,8 @@ class EvoConfig:
         """Updates the configuration based on user input.
 
         Args:
-            user_config: either a dictionary or a yaml file that contains configuration information
+            user_config: either a dictionary or the path to a
+            yaml file that contains configuration information
         """
         if user_config is None:
             return
@@ -203,7 +207,6 @@ class EvoConfig:
             learning_rate = random.choice(self.config['learning_rates'])
             learning_rate *= random.randint(1, 9)
             self.config['learning_rate'] = learning_rate
-            self.recompile = True
 
         elif param_to_mutate == 'opt':
             pass

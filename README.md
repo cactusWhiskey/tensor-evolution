@@ -11,7 +11,7 @@ Note that this library doesn't build networks a single neuron at a time, the bas
 ## Philosophy
 
 Population members start as the input layer connected directly to the output layer. Mutation operators exist for 
-inserting layers (from a list of supported types), deleting layers, and for mutating existing layers' properties. A 
+inserting layers (from a list of supported types), deleting layers, and for mutating an existing layer's properties. A 
 crossover operator is also implemented.
 
 Fitness is evaluated by building, compiling, and training a model from each population member's genome. 

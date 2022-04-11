@@ -16,7 +16,8 @@ class TensorNetwork:
     """Holds all the information that defines the NN gnome"""
     id_iter = itertools.count(100)
 
-    def __init__(self, input_shapes: list, output_units: list, connected=True):
+    def __init__(self, input_shapes: list, output_units: list,
+                 connected=True, preprocessing_layers=None):
         self.graph = nx.MultiDiGraph()
         self.net_id = next(TensorNetwork.id_iter)
         self.all_nodes = {}
@@ -26,7 +27,7 @@ class TensorNetwork:
         self.output_units = output_units
 
         if connected:
-            self._create_inputs(input_shapes)
+            self._create_inputs(input_shapes, preprocessing_layers)
             self._create_outputs(output_units)
 
     def serialize(self) -> dict:
@@ -81,12 +82,13 @@ class TensorNetwork:
 
         return clone_tn
 
-    def _create_inputs(self, input_shapes: list):
+    def _create_inputs(self, input_shapes: list, preprocessing_layers=None):
         if len(input_shapes) > 1:
             raise ValueError("Multiple inputs not yet supported")
 
         for shape in input_shapes:
             node = io_nodes.InputNode(shape)
+            node.preprocessing_layers = preprocessing_layers
             self.register_node(node)
 
     def _create_outputs(self, output_units: list):

@@ -3,6 +3,7 @@ import tensorflow as tf
 from tensorEvolution import tensor_evolution
 import os
 
+# delete this line to use gpu
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 mnist = tf.keras.datasets.mnist

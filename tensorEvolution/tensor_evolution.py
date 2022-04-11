@@ -12,17 +12,8 @@ from matplotlib import pyplot as plt
 from tensorEvolution import tensor_encoder
 from tensorEvolution.ActorPoolExtension import ActorPoolExtension
 from tensorEvolution import tensor_network
-from tensorEvolution.nodes import tensor_node, node_utils
+from tensorEvolution.nodes import node_utils
 from tensorEvolution import evo_config
-
-
-def _setup_creator():
-    # pylint: disable=E1101
-    creator.create("FitnessMax", base.Fitness, weights=(1.0,))
-    creator.create("Individual", list, fitness=creator.FitnessMax)
-
-
-_setup_creator()
 
 
 # noinspection PyCallingNonCallable
@@ -93,6 +84,7 @@ class EvolutionWorker:
         self._setup_stats()
         self._setup_log()
         self.master_config = evo_config.master_config
+        self.preprocessing_layers = None
 
     def update_master_config(self, config):
         """Updates the configuration based on user input.
@@ -142,7 +134,13 @@ class EvolutionWorker:
         # pylint: disable=E1101
         ind = creator.Individual()
         individual_config = self.master_config.clone()
-        tensor_net = tensor_network.TensorNetwork(input_shapes, num_outputs)
+
+        preprocessing = None
+        if self.preprocessing_layers is not None:
+            preprocessing = random.choice(self.preprocessing_layers)
+
+        tensor_net = tensor_network.TensorNetwork(input_shapes, num_outputs,
+                                                  preprocessing)
         ind.append(individual_config)
         ind.append(tensor_net)
         return ind
@@ -255,6 +253,17 @@ class EvolutionWorker:
         tensor_network.cx_single_node(tensor_net, other_net)
         return ind1, ind2
 
+    def _setup_creator(self):
+        # pylint: disable=E1101
+        direction = self.master_config.config['direction']
+
+        if direction == 'max':
+            creator.create("Fitness", base.Fitness, weights=(1.0,))
+        else:
+            creator.create("Fitness", base.Fitness, weights=(-1.0,))
+
+        creator.create("Individual", list, fitness=creator.Fitness)
+
     def evolve(self, data):
         """Main evolution method. Call to begin evolution.
 
@@ -336,6 +345,7 @@ class EvolutionWorker:
 
         # build population
         if self.pop is None:
+            self._setup_creator()
             self.pop = self.toolbox.population(n=self.master_config.config['pop_size'])
 
         # Evaluate the entire population
@@ -462,4 +472,14 @@ class EvolutionWorker:
             new_pop.append(EvolutionWorker.deserialize_individual(serial_individual))
         return new_pop
 
-
+    def setup_preprocessing(self, preprocessing_layers: list):
+        """Use this method to set preprocessing layers on the input
+        Args:
+            preprocessing_layers: needs to be a list of lists,or the None value type.
+            Each position in the outermost list is a set of preprocessing layers to be
+            applied to genomes. The None value represents no preprocessing.
+            When a new individual of the population is created, a set of preprocessing
+            layers will be chosen randomly from the list (include None as a list member if
+            you want the option of no preprocessing).
+            The layers need to be ready to go (so run any adapting beforehand)"""
+        self.preprocessing_layers = preprocessing_layers

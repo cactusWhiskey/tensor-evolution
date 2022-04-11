@@ -11,6 +11,7 @@ input_shapes: [[28, 28]]
 #List of output shapes
 num_outputs: [10]
 
+direction: max #is fitness maximized or minimized
 
 ####
 # Ray remote settings
@@ -74,7 +75,7 @@ opt: {optimizer: 'adam', learning_rate: 0.001} #optimizer
 learning_rates: [0.0001, 0.001, 0.01, 0.1]
 loss: 'SparseCategoricalCrossentropy' #loss function
 metrics: ['accuracy'] #metrics for neural network model
-max_fit_epochs: 1 #max number of epochs to train a genome for
+max_fit_epochs: 6 #max number of epochs to train a genome for
 early_stopping: {use_early: True, monitor: 'loss', patience: 2 ,min_delta: 0.02}
 verbose: 0
 
@@ -85,7 +86,7 @@ verbose: 0
 evolve_hyperparams: True
 hyper_mut: 0.1 # prob to mutate hyperparms
 hyper_cx: 0.2 # prob of hyperparam crossover
-hyper_cx_uniform_prob: 0.2 # cross over is uniform type, his is prob that any given hyper param is swapped
+hyper_cx_uniform_prob: 0.2 # cross over is uniform type, this is prob that any given hyper param is swapped
 mutatable_keys: ['cx', 'm_mut', 'm_insert', 'm_del', 'hyper_cx',
                  'hyper_mut', 'learning_rate', 'opt']
 
@@ -93,6 +94,6 @@ mutatable_keys: ['cx', 'm_mut', 'm_insert', 'm_del', 'hyper_cx',
 ####
 # Save settings
 ####
-save_pop_every: 1 # save population to disk every n generations
-save_pop_filepath: 'pop9.txt'
+save_pop_every: 5 # save population to disk every n generations
+save_pop_filepath: 'pop.txt'
 ...

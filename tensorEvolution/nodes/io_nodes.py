@@ -12,6 +12,7 @@ class InputNode(TensorNode):
         super().__init__()
         self.input_shape = input_shape
         self.is_branch_root = True
+        self.preprocessing_layers = None  # should be a list of layers or None
 
     def clone(self):
         """
@@ -21,7 +22,17 @@ class InputNode(TensorNode):
         return InputNode(self.input_shape)
 
     def _build(self, layers_so_far):
-        return tf.keras.Input(shape=self.input_shape)
+        """Note that by default, the build method sends layers so far as a parameter,
+        but for an input node, it's just equal to None.
+        We redefine it below, since it's a convenient variable name to use in intermediate steps. """
+
+        layers_so_far = tf.keras.Input(shape=self.input_shape)
+
+        if self.preprocessing_layers is not None:
+            for pre_layer in self.preprocessing_layers:
+                layers_so_far = pre_layer(layers_so_far)
+
+        return layers_so_far
 
     def deserialize_cleanup(self):
         """

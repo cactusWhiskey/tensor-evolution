@@ -81,7 +81,7 @@ custom_config['pop_size'] = 100
 custom_config['remote'] = True
 custom_config['loss'] = 'MeanAbsoluteError'
 custom_config['max_fit_epochs'] = 20
-custom_config['verbose'] = 0
+custom_config['verbose'] = 1
 custom_config['metrics'] = ['mean_absolute_error']
 custom_config['direction'] = 'min'
 custom_config['remote_actors'] = 5
@@ -92,3 +92,12 @@ data = train_features, train_labels, test_features, test_labels
 worker = tensor_evolution.EvolutionWorker()
 worker.setup_preprocessing(normalizer)
 worker.evolve(data=data)
+
+best = worker.get_best_individual()
+tensor_net = best[1]
+model = tensor_net.build_model()
+model.compile(loss=worker.master_config.loss, optimizer=worker.master_config.opt,
+              metrics=worker.master_config.config['metrics'])
+
+model.fit(train_features, train_labels, epochs=100)
+model.evaluate(test_features, test_labels)

@@ -20,6 +20,7 @@ class Conv2dNode(TensorNode):
         self.padding = padding
         self.can_mutate = True
         self.node_allows_cache_training = True
+        self.kernel_regularizer = evo_config.master_config.random_regularizer()
 
     def clone(self):
         """Creates a new node with the same parameters as this node"""
@@ -29,10 +30,11 @@ class Conv2dNode(TensorNode):
 
     def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
         self.keras_tensor_input_name = layers_so_far.name
-
+        regularizer = evo_config.EvoConfig.build_regularizer(self.kernel_regularizer)
         return tf.keras.layers.Conv2D(self.filters, self.kernel_size,
                                       activation=self.activation,
-                                      padding=self.padding)(layers_so_far)
+                                      padding=self.padding,
+                                      kernel_regularizer=regularizer)(layers_so_far)
 
     @staticmethod
     def create_random():
@@ -51,6 +53,7 @@ class Conv2dNode(TensorNode):
         self.filters = filters
         self.kernel_size = kernel_size
         self.weights = None
+        self.kernel_regularizer = evo_config.master_config.random_regularizer()
 
     def fix_input(self, layers_so_far: KerasTensor) -> KerasTensor:
         """Reshapes the input (if needed) so that it's valid for
@@ -107,6 +110,7 @@ class Conv3dNode(TensorNode):
         self.padding = padding
         self.can_mutate = True
         self.node_allows_cache_training = True
+        self.kernel_regularizer = evo_config.master_config.random_regularizer()
 
     def clone(self):
         """Creates a new node with the same parameters as this node"""
@@ -116,10 +120,11 @@ class Conv3dNode(TensorNode):
 
     def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
         self.keras_tensor_input_name = layers_so_far.name
-
+        regularizer = evo_config.EvoConfig.build_regularizer(self.kernel_regularizer)
         return tf.keras.layers.Conv3D(self.filters, self.kernel_size,
                                       activation=self.activation,
-                                      padding=self.padding)(layers_so_far)
+                                      padding=self.padding,
+                                      kernel_regularizer=regularizer)(layers_so_far)
 
     @staticmethod
     def create_random():
@@ -138,6 +143,7 @@ class Conv3dNode(TensorNode):
         self.filters = filters
         self.kernel_size = kernel_size
         self.weights = None
+        self.kernel_regularizer = evo_config.master_config.random_regularizer()
 
     def fix_input(self, layers_so_far: KerasTensor) -> KerasTensor:
         """Reshapes the input (if needed) so that it's valid for

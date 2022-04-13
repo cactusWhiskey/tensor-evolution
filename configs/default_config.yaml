@@ -11,7 +11,7 @@ input_shapes: [[28, 28]]
 #List of output shapes
 num_outputs: [10]
 
-direction: max #is fitness maximized or minimized
+direction: max #is fitness maximized or minimized. use "min" for minimized
 
 ####
 # Ray remote settings
@@ -19,6 +19,7 @@ direction: max #is fitness maximized or minimized
 remote: True #run using Ray remote actors
 remote_actors: 3 #number of actors to use for remote execution
 remote_actor_cpus: 1
+remote_actor_gpus: 0
 
 
 ####
@@ -36,9 +37,9 @@ valid_node_types: ["DenseNode", "ReluNode", "BatchNormNode",
                    "DropoutNode", "Conv3dNode", "MaxPool3DNode", "LstmNode"]
 
 #Controls max size of dense layers. Dense layer sizes are always a power of 2.
-dense_max_power_two: 6
+dense_max_power_two: 7
 #Conrols max number of filters on Conv2D, 3D layers. Number of filters is always a power of 2
-max_conv_power: 6
+max_conv_power: 5
 lstm_power_two: 4
 
 #Valid kernel sizes for Conv2D layers
@@ -73,11 +74,17 @@ max_network_size: 10 #maximum size of the generated neural networks
 ####
 opt: {optimizer: 'adam', learning_rate: 0.001} #optimizer
 learning_rates: [0.0001, 0.001, 0.01, 0.1]
+regulizer_factor: [0.0001, 0.001, 0.01, 0.1] #factors for kernel regularization
+regularizer_types: ['L1', 'L2', 'L1L2', 'None'] #kernel regularization
+                                                #only use "None" for no regularization.
+                                                #Omit "None" if you want every node that
+                                                #can regularize to do so
 loss: 'SparseCategoricalCrossentropy' #loss function
 metrics: ['accuracy'] #metrics for neural network model
 max_fit_epochs: 6 #max number of epochs to train a genome for
 early_stopping: {use_early: True, monitor: 'loss', patience: 2 ,min_delta: 0.02}
 verbose: 0
+batch_size: 'None'
 
 
 ####

@@ -4,6 +4,7 @@ import itertools
 from abc import ABC, abstractmethod
 from keras.engine.keras_tensor import KerasTensor
 from networkx import MultiDiGraph
+import tensorflow as tf
 
 
 class TensorNode(ABC):
@@ -130,3 +131,4 @@ class TensorNode(ABC):
         """Subclasses must implement a clone method which returns
         a deep copy of the given node"""
         raise NotImplementedError
+

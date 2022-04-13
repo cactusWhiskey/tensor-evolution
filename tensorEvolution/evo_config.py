@@ -225,6 +225,33 @@ class EvoConfig:
 
         return {k: v for (k, v) in self.config.items() if k in self.config['mutatable_keys']}
 
+    def random_regularizer(self) -> list:
+        """Generates a random kernel regularizer based on the
+        relevant parameters from the config dictionary"""
+        config = self.config
+        random_reg = random.choice(config['regularizer_types'])
+        l1 = random.choice(config['regulizer_factor'])
+        l2 = random.choice(config['regulizer_factor'])
+
+        return [random_reg, l1, l2]
+
+    @staticmethod
+    def build_regularizer(regularizer_list: list) -> tf.keras.regularizers.Regularizer:
+        regularizer = regularizer_list[0]
+        l1 = regularizer_list[1]
+        l2 = regularizer_list[2]
+
+        if regularizer in [None, 'None']:
+            return None
+        elif regularizer == "L1L2":
+            return tf.keras.regularizers.L1L2(l1=l1, l2=l2)
+        elif regularizer == "L1":
+            return tf.keras.regularizers.L1(l1=l1)
+        elif regularizer == "L2":
+            return tf.keras.regularizers.L2(l2=l2)
+        else:
+            raise AttributeError("Unsupported kernel regularizer: " + str(regularizer))
+
 
 def cross_over(some_hp: EvoConfig, other_hp: EvoConfig):
     """Cross over operator for hyperparameters. Filters for valid parameters

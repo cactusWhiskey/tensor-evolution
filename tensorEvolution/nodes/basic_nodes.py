@@ -80,14 +80,15 @@ class AdditionNode(TensorNode):
             if main_branch.shape.rank == 2:  # dense shape
                 units = main_branch.shape[1]  # main_shape[0] will be None
                 adder_branch = tf.keras.layers.Dense(units)(adder_branch)
-            elif main_branch.shape.rank == 4:  # Conv2D shape
+            elif main_branch.shape.rank in (4, 5):  # Conv2D, 3D shapes
                 units = 1
-                for i in range(1, 4):
+                for i in range(1, main_branch.shape.rank):
                     units *= main_branch.shape[i]  # total length
                 adder_branch = tf.keras.layers.Dense(units)(adder_branch)
                 adder_branch = tf.keras.layers.Reshape(main_branch.shape[1:])(adder_branch)
             else:
                 main_branch = tf.keras.layers.Flatten()(main_branch)
+                adder_branch = tf.keras.layers.Flatten()(adder_branch)
                 main_shape = main_branch.shape
                 units = main_shape[1]
                 adder_branch = tf.keras.layers.Dense(units)(adder_branch)
@@ -104,6 +105,7 @@ class DenseNode(TensorNode):
         self.activation = activation
         self.can_mutate = True
         self.node_allows_cache_training = True
+        self.kernel_regularizer = evo_config.master_config.random_regularizer()
 
     def clone(self):
         """Crates a new dense node with the same number of units and
@@ -114,9 +116,10 @@ class DenseNode(TensorNode):
 
     def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
         self.keras_tensor_input_name = layers_so_far.name
-
+        regularizer = evo_config.EvoConfig.build_regularizer(self.kernel_regularizer)
         return tf.keras.layers.Dense(self.num_units,
-                                     activation=self.activation)(layers_so_far)
+                                     activation=self.activation,
+                                     kernel_regularizer=regularizer)(layers_so_far)
 
     @staticmethod
     def create_random():
@@ -138,6 +141,7 @@ class DenseNode(TensorNode):
         units = 2 ** random_power
         self.num_units = units
         self.weights = None
+        self.kernel_regularizer = evo_config.master_config.random_regularizer()
 
 
 class ReluNode(TensorNode):

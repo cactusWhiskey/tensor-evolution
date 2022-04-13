@@ -17,7 +17,8 @@ from tensorEvolution import evo_config
 
 
 # noinspection PyCallingNonCallable
-@ray.remote(num_cpus=evo_config.master_config.config['remote_actor_cpus'])
+@ray.remote(num_cpus=evo_config.master_config.config['remote_actor_cpus'],
+            num_gpus=evo_config.master_config.config['remote_actor_gpus'])
 class RemoteEvoActor:
     """This class is a Ray remote actor.
     This actor performs evaluation on individuals in the population."""
@@ -50,8 +51,14 @@ class RemoteEvoActor:
         model.compile(loss=config.loss,
                       optimizer=config.opt,
                       metrics=config.config['metrics'])
+
+        batch_size = config.config['batch_size']
+        if batch_size == 'None':
+            batch_size = None
+
         model.fit(x_train, y_train, epochs=config.config['max_fit_epochs'],
-                  callbacks=config.callbacks, verbose=config.config['verbose'])
+                  callbacks=config.callbacks, verbose=config.config['verbose'],
+                  batch_size=batch_size)
         _, test_acc = model.evaluate(x_test, y_test)
 
         length = len(individual[1].get_middle_nodes())
@@ -164,8 +171,13 @@ class EvolutionWorker:
         if config.config['global_cache_training']:
             tensor_net.store_weights(model, direction_into_tn=False)
 
+        batch_size = config.config['batch_size']
+        if batch_size == 'None':
+            batch_size = None
+
         model.fit(x_train, y_train, epochs=config.config['max_fit_epochs'],
-                  callbacks=config.callbacks, verbose=config.config['verbose'])
+                  callbacks=config.callbacks, verbose=config.config['verbose'],
+                  batch_size=batch_size)
         _, test_acc = model.evaluate(x_test, y_test)
 
         if config.config['global_cache_training']:
@@ -384,20 +396,21 @@ class EvolutionWorker:
             self._gen_bookkeeping(gen)
 
             # save data to disk
-            self._save(gen)
+            self._save_every(gen)
 
         print("-- End of (successful) evolution --")
 
         best_ind = tools.selBest(self.pop, 1)[0]
         print("Best individual is %s" % best_ind.fitness.values)
         best_ind[1].build_model().summary()
-        # self.plot()
+        self.save(self.master_config.config['save_pop_filepath'])
+        self.plot()
 
     def get_best_individual(self):
         """Returns the best individual in the population"""
         return tools.selBest(self.pop, 1)[0]
 
-    def _save(self, gen):
+    def _save_every(self, gen):
         if (gen % self.master_config.config['save_pop_every']) == 0:
             self.save(self.master_config.config['save_pop_filepath'])
 

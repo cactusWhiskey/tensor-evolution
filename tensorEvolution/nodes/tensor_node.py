@@ -29,9 +29,12 @@ class TensorNode(ABC):
         """
         saved_layers = self.saved_layers
         self.saved_layers = None
-        serial_dict = copy.deepcopy(self.__dict__)
+        serial_dict = self._serialize()
         self.saved_layers = saved_layers
         return serial_dict
+
+    def _serialize(self) -> dict:
+        return copy.deepcopy(self.__dict__)
 
     def deserialize_cleanup(self):
         """Do cleanup after deserialization if required,
@@ -131,4 +134,3 @@ class TensorNode(ABC):
         """Subclasses must implement a clone method which returns
         a deep copy of the given node"""
         raise NotImplementedError
-

@@ -1,11 +1,11 @@
 """This module contains the main evolution loop"""
 
 import json
-import os
+
 import random
 import numpy
 import ray
-
+import tensorflow as tf
 from deap import creator, base, tools
 from matplotlib import pyplot as plt
 
@@ -22,7 +22,6 @@ from tensorEvolution import evo_config
 class RemoteEvoActor:
     """This class is a Ray remote actor.
     This actor performs evaluation on individuals in the population."""
-    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
     def __init__(self, data):
         """initialize an actor
@@ -86,12 +85,13 @@ class EvolutionWorker:
         self.stats = None
         self.pop = None
         self.pool = None
-        # _setup_creator()
         self.toolbox = base.Toolbox()
         self._setup_stats()
         self._setup_log()
         self.master_config = evo_config.master_config
         self.preprocessing_layers = None
+        self.preprocessing_layers_length = 0
+        self._setup_creator()
 
     def update_master_config(self, config):
         """Updates the configuration based on user input.
@@ -142,12 +142,8 @@ class EvolutionWorker:
         ind = creator.Individual()
         individual_config = self.master_config.clone()
 
-        preprocessing = None
-        if self.preprocessing_layers is not None:
-            preprocessing = random.choice(self.preprocessing_layers)
-
         tensor_net = tensor_network.TensorNetwork(input_shapes, num_outputs,
-                                                  preprocessing)
+                                                  preprocessing_layers=self.preprocessing_layers)
         ind.append(individual_config)
         ind.append(tensor_net)
         return ind
@@ -357,8 +353,8 @@ class EvolutionWorker:
 
         # build population
         if self.pop is None:
-            self._setup_creator()
             self.pop = self.toolbox.population(n=self.master_config.config['pop_size'])
+            self._save_preprocessing_layers()
 
         # Evaluate the entire population
         if self.master_config.config['remote']:
@@ -446,7 +442,9 @@ class EvolutionWorker:
         """Rebuild object from a dict"""
         new_worker = EvolutionWorker()
         new_worker.master_config = evo_config.EvoConfig.deserialize(serial_dict['master_config'])
-        new_worker.pop = EvolutionWorker.deserialize_pop(serial_dict['pop'])
+        new_worker._load_preprocessing_layers()
+        new_worker.pop = EvolutionWorker.deserialize_pop(serial_dict['pop'],
+                                                         new_worker.preprocessing_layers)
         return new_worker
 
     def serialize_pop(self) -> list:
@@ -466,23 +464,26 @@ class EvolutionWorker:
         return serial_individual
 
     @staticmethod
-    def deserialize_individual(serial_individual: list):
+    def deserialize_individual(serial_individual: list, preprocessing_layers=None):
         """Rebuilds an individual from serial form"""
         # pylint: disable=E1101
         new_ind = creator.Individual()
         individual_config = evo_config.EvoConfig.deserialize(serial_individual[0])
         tensor_net = tensor_network.TensorNetwork.deserialize(serial_individual[1])
+        if preprocessing_layers is not None:
+            tensor_net.load_preprocessing_layers(preprocessing_layers)
         new_ind.append(individual_config)
         new_ind.append(tensor_net)
         new_ind.fitness.values = tuple(serial_individual[2])
         return new_ind
 
     @staticmethod
-    def deserialize_pop(serial_pop: list) -> list:
+    def deserialize_pop(serial_pop: list, preprocessing_layers=None) -> list:
         """Rebuilds population from serial form"""
         new_pop = []
         for serial_individual in serial_pop:
-            new_pop.append(EvolutionWorker.deserialize_individual(serial_individual))
+            new_pop.append(EvolutionWorker.deserialize_individual(serial_individual,
+                                                                  preprocessing_layers))
         return new_pop
 
     def setup_preprocessing(self, preprocessing_layers: list):
@@ -496,3 +497,36 @@ class EvolutionWorker:
             you want the option of no preprocessing).
             The layers need to be ready to go (so run any adapting beforehand)"""
         self.preprocessing_layers = preprocessing_layers
+        self.preprocessing_layers_length = len(preprocessing_layers)
+        self._save_preprocessing_layers()
+
+    def _save_preprocessing_layers(self):
+        if self.preprocessing_layers is None:
+            return
+
+        input_shapes = self.master_config.config['input_shapes']
+        num_outputs = self.master_config.config['num_outputs']
+
+        inputs = tf.keras.Input(shape=tuple(input_shapes[0]))
+
+        layers_so_far = inputs
+        for pre_layer in self.preprocessing_layers:
+            layers_so_far = pre_layer(layers_so_far)
+
+        outputs = tf.keras.layers.Dense(num_outputs[0])(layers_so_far)
+        model = tf.keras.Model(inputs, outputs)
+        preprocessing_save_path = evo_config.master_config.config['preprocessing_save_path']
+        model.save(preprocessing_save_path)
+
+    def _load_preprocessing_layers(self):
+        if self.preprocessing_layers_length == 0:
+            return
+
+        preprocessing_save_path = evo_config.master_config.config['preprocessing_save_path']
+        model = tf.keras.models.load_model(preprocessing_save_path)
+
+        prelayers = []
+        for i in range(1, (self.preprocessing_layers_length+ 1)):
+            prelayers.append(model.layers[i])
+
+        self.preprocessing_layers = prelayers

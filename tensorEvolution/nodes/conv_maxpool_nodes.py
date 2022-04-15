@@ -5,7 +5,7 @@ import tensorflow as tf
 from keras.engine.keras_tensor import KerasTensor
 
 from tensorEvolution import evo_config
-from tensorEvolution.nodes import tensor_node, node_utils
+from tensorEvolution.nodes import node_utils
 from tensorEvolution.nodes.tensor_node import TensorNode
 
 
@@ -27,6 +27,11 @@ class Conv2dNode(TensorNode):
         clone = Conv2dNode(self.filters, self.kernel_size, self.padding)
         clone.weights = copy.deepcopy(self.weights)
         return clone
+
+    def deserialize_cleanup(self):
+        """Do cleanup after deserialization if required,
+        should be implemented in subclasses as needed."""
+        self.kernel_size = tuple(self.kernel_size)
 
     def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
         self.keras_tensor_input_name = layers_so_far.name
@@ -76,6 +81,11 @@ class MaxPool2DNode(TensorNode):
         """Copies this node"""
         return MaxPool2DNode(self.pool_size, self.padding)
 
+    def deserialize_cleanup(self):
+        """Do cleanup after deserialization if required,
+        should be implemented in subclasses as needed."""
+        self.pool_size = tuple(self.pool_size)
+
     def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
         return tf.keras.layers.MaxPooling2D(self.pool_size,
                                             padding=self.padding)(layers_so_far)
@@ -117,6 +127,11 @@ class Conv3dNode(TensorNode):
         clone = Conv3dNode(self.filters, self.kernel_size, self.padding)
         clone.weights = copy.deepcopy(self.weights)
         return clone
+
+    def deserialize_cleanup(self):
+        """Do cleanup after deserialization if required,
+        should be implemented in subclasses as needed."""
+        self.kernel_size = tuple(self.kernel_size)
 
     def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
         self.keras_tensor_input_name = layers_so_far.name
@@ -165,6 +180,11 @@ class MaxPool3DNode(TensorNode):
     def clone(self):
         """Copies this node"""
         return MaxPool3DNode(self.pool_size, self.padding)
+
+    def deserialize_cleanup(self):
+        """Do cleanup after deserialization if required,
+        should be implemented in subclasses as needed."""
+        self.pool_size = tuple(self.pool_size)
 
     def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
         return tf.keras.layers.MaxPooling3D(self.pool_size,

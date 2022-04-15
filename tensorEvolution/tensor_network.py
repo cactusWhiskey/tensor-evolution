@@ -6,29 +6,32 @@ import time
 import random
 import tensorflow as tf
 import networkx as nx
-import pydot
 from matplotlib import pyplot as plt
 from tensorEvolution import tensor_encoder
-from tensorEvolution.nodes import tensor_node, io_nodes, node_utils
+from tensorEvolution.nodes import tensor_node, io_nodes, node_utils, basic_nodes
 
 
 class TensorNetwork:
     """Holds all the information that defines the NN gnome"""
     id_iter = itertools.count(100)
 
-    def __init__(self, input_shapes: list, output_units: list,
-                 connected=True, preprocessing_layers=None):
+    def __init__(self, input_shapes: list, output_units: list, connected=True,
+                 preprocessing_layers=None):
         self.graph = nx.MultiDiGraph()
         self.net_id = next(TensorNetwork.id_iter)
         self.all_nodes = {}
         self.input_ids = []
         self.output_ids = []
+        self.preprocessing_ids = []
         self.input_shapes = input_shapes
         self.output_units = output_units
 
         if connected:
-            self._create_inputs(input_shapes, preprocessing_layers)
-            self._create_outputs(output_units)
+            self._create_inputs(input_shapes)
+            if preprocessing_layers is None:
+                self._create_outputs(output_units)
+            else:
+                self._create_preprocessing_and_outputs(preprocessing_layers, output_units)
 
     def serialize(self) -> dict:
         """Creates serializable version of this class"""
@@ -98,6 +101,20 @@ class TensorNetwork:
 
             for input_id in self.input_ids:
                 self.graph.add_edge(input_id, node.id)
+
+    def _create_preprocessing_and_outputs(self, preprocessing_layers: list, output_units: list):
+        preprocess_node = basic_nodes.PreprocessingNode(preprocessing_layers)
+        self.register_node(preprocess_node)
+
+        for input_id in self.input_ids:
+            self.graph.add_edge(input_id, preprocess_node.id)
+
+        for units in output_units:
+            output_node = io_nodes.OutputNode(units)
+            self.register_node(output_node)
+
+            for preprocess_id in self.preprocessing_ids:
+                self.graph.add_edge(preprocess_id, output_node.id)
 
     def insert_node(self, new_node: tensor_node.TensorNode, position: int):
         """inserts node before the given position.
@@ -183,6 +200,8 @@ class TensorNetwork:
             self.input_ids.append(node.id)
         elif label == "OutputNode":
             self.output_ids.append(node.id)
+        elif label == "PreprocessingNode":
+            self.preprocessing_ids.append(node.id)
 
     # def replace_node(self, replacement_node: tensor_node.TensorNode,
     #                  position=None, existing_node_id=None):
@@ -199,6 +218,13 @@ class TensorNetwork:
     #     self.graph.remove_node()
     #     nx.relabel_nodes(self.graph, {old_node.id: replacement_node.id}, copy=False)
     #     self.graph.nodes[replacement_node.id]['label'] = replacement_node.get_label()
+
+    def load_preprocessing_layers(self, preprocessing_layers: list):
+        if len(self.preprocessing_ids) == 0:
+            return
+
+        for node in self.get_preprocessing_nodes().values():
+            node.preprocessing_layers = preprocessing_layers
 
     def remove_chain(self, id_chain: list, heal=True, replace=False, new_chain_nodes: list = None):
         """
@@ -330,17 +356,24 @@ class TensorNetwork:
     def get_not_input_nodes(self) -> dict:
         """
 
-        :return: dict of all nodes that are not inputs
+        :return: dict of all nodes that are not inputs or preprocessing
         """
-        return {k: v for (k, v) in self.all_nodes.items() if k not in self.input_ids}
+        return {k: v for (k, v) in self.all_nodes.items() if (k not in self.input_ids)
+                and (k not in self.preprocessing_ids)}
+
+    def get_preprocessing_nodes(self) -> dict:
+        """Returns preprocessing nodes as a dict"""
+
+        return {k: v for (k, v) in self.all_nodes.items() if (k in self.preprocessing_ids)}
 
     def get_middle_nodes(self) -> dict:
         """
 
-        :return: dict of all nodes that are neither input nor outputs
+        :return: dict of all nodes that are neither input nor outputs, nor preprocessing
         """
         return {k: v for (k, v) in self.all_nodes.items()
-                if (k not in self.input_ids) and (k not in self.output_ids)}
+                if (k not in self.input_ids) and (k not in self.output_ids)
+                and (k not in self.preprocessing_ids)}
 
     def get_mutatable_nodes(self) -> dict:
         """
@@ -356,7 +389,8 @@ class TensorNetwork:
         """
         return {k: v for (k, v) in self.all_nodes.items() if
                 (len(list(self.graph.predecessors(k))) == 1) and
-                (len(list(self.graph.successors(k))) == 1)}
+                (len(list(self.graph.successors(k))) == 1)
+                and (k not in self.preprocessing_ids)}
 
     def get_valid_insert_positions(self) -> dict:
         """

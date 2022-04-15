@@ -200,3 +200,45 @@ class DropoutNode(TensorNode):
 
     def mutate(self):
         self.rate = random.uniform(0.0, 0.9)
+
+
+class PreprocessingNode(TensorNode):
+    """Node which holds preprocessing layers"""
+
+    def __init__(self, preprocessing_layers):
+        super().__init__()
+        self.preprocessing_layers = preprocessing_layers
+        self.num_pre_layers = len(preprocessing_layers)
+
+    def _build(self, layers_so_far) -> KerasTensor:
+        if self.preprocessing_layers is not None:
+            for pre_layer in self.preprocessing_layers:
+                layers_so_far = pre_layer(layers_so_far)
+
+        return layers_so_far
+
+    @staticmethod
+    def create_random():
+        """Raises an error, it's not valid to randomly create this node"""
+        raise NotImplementedError("Preprocessing Node can't be created randomly")
+
+    def clone(self):
+        """Clones this node"""
+        return PreprocessingNode(self.preprocessing_layers)
+
+    def _serialize(self) -> dict:
+        preprocessing_layers = self.preprocessing_layers
+        self.preprocessing_layers = None
+        serial_dict = copy.deepcopy(self.__dict__)
+        self.preprocessing_layers = preprocessing_layers
+        return serial_dict
+
+    def load_layers(self):
+        preprocessing_save_path = evo_config.master_config.config['preprocessing_save_path']
+        model = tf.keras.models.load_model(preprocessing_save_path)
+
+        prelayers = []
+        for i in range(1, (self.num_pre_layers + 1)):
+            prelayers.append(model.layers[i])
+
+        self.preprocessing_layers = prelayers

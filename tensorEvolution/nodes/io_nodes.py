@@ -12,7 +12,6 @@ class InputNode(TensorNode):
         super().__init__()
         self.input_shape = input_shape
         self.is_branch_root = True
-        self.preprocessing_layers = None  # should be a list of layers or None
 
     def clone(self):
         """
@@ -27,11 +26,6 @@ class InputNode(TensorNode):
         We redefine it below, since it's a convenient variable name to use in intermediate steps. """
 
         layers_so_far = tf.keras.Input(shape=self.input_shape)
-
-        if self.preprocessing_layers is not None:
-            for pre_layer in self.preprocessing_layers:
-                layers_so_far = pre_layer(layers_so_far)
-
         return layers_so_far
 
     def deserialize_cleanup(self):
@@ -44,7 +38,7 @@ class InputNode(TensorNode):
 
     @staticmethod
     def create_random():
-        """Raises an error, it's not valid to randomly crate inputs"""
+        """Raises an error, it's not valid to randomly create inputs"""
         raise NotImplementedError("Input Node can't be created randomly")
 
 

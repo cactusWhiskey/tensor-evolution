@@ -33,6 +33,7 @@ This list is currently expanding. So far:
 - Addition
 - BatchNorm
 - Flatten
+- LSTM (experimental)
 
 ## Installation
 

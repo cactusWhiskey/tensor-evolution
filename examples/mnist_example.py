@@ -19,22 +19,24 @@ This derivative work is also licensed under Apache 2.0.
 """
 import tensorflow as tf
 from tensorEvolution import tensor_evolution
-import os
 
-# delete this line to use gpu
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-# get mnist dataset
-mnist = tf.keras.datasets.mnist
+def main():
+    # get mnist dataset
+    mnist = tf.keras.datasets.mnist
 
-# scale the data
-(x_train, y_train), (x_test, y_test) = mnist.load_data()
-x_train, x_test = x_train / 255.0, x_test / 255.0
+    # scale the data
+    (x_train, y_train), (x_test, y_test) = mnist.load_data()
+    x_train, x_test = x_train / 255.0, x_test / 255.0
 
-# pack into data tuple
-data = x_train, y_train, x_test, y_test
+    # pack into data tuple
+    data = x_train, y_train, x_test, y_test
 
-# create evolution worker
-worker = tensor_evolution.EvolutionWorker()
-# evolve
-worker.evolve(data=data)
+    # create evolution worker
+    worker = tensor_evolution.EvolutionWorker()
+    # evolve
+    worker.evolve(data=data)
+
+
+if __name__ == "__main__":
+    main()

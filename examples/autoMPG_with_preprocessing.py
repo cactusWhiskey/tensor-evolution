@@ -2,7 +2,7 @@
 
 # Copyright 2018 The TensorFlow Authors.
 
-#@title Licensed under the Apache License, Version 2.0 (the "License");
+# @title Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#@title MIT License
+# @title MIT License
 #
 # Copyright (c) 2017 François Chollet
 #
@@ -46,58 +46,69 @@ import pandas as pd
 import tensorflow as tf
 from tensorEvolution import evo_config, tensor_evolution
 
-url = 'http://archive.ics.uci.edu/ml/machine-learning-databases/auto-mpg/auto-mpg.data'
-column_names = ['MPG', 'Cylinders', 'Displacement', 'Horsepower', 'Weight',
-                'Acceleration', 'Model Year', 'Origin']
+tf.config.run_functions_eagerly(True)
+tf.data.experimental.enable_debug_mode()
 
-raw_dataset = pd.read_csv(url, names=column_names,
-                          na_values='?', comment='\t',
-                          sep=' ', skipinitialspace=True)
-dataset = raw_dataset.copy()
-dataset = dataset.dropna()
-dataset['Origin'] = dataset['Origin'].map({1: 'USA', 2: 'Europe', 3: 'Japan'})
-dataset = pd.get_dummies(dataset, columns=['Origin'], prefix='', prefix_sep='')
-train_dataset = dataset.sample(frac=0.8, random_state=0)
-test_dataset = dataset.drop(train_dataset.index)
 
-train_features = train_dataset.copy()
-test_features = test_dataset.copy()
+def main():
+    url = 'http://archive.ics.uci.edu/ml/machine-learning-databases/auto-mpg/auto-mpg.data'
+    column_names = ['MPG', 'Cylinders', 'Displacement', 'Horsepower', 'Weight',
+                    'Acceleration', 'Model Year', 'Origin']
 
-train_labels = train_features.pop('MPG')
-test_labels = test_features.pop('MPG')
+    raw_dataset = pd.read_csv(url, names=column_names,
+                              na_values='?', comment='\t',
+                              sep=' ', skipinitialspace=True)
+    dataset = raw_dataset.copy()
+    dataset = dataset.dropna()
+    dataset['Origin'] = dataset['Origin'].map({1: 'USA', 2: 'Europe', 3: 'Japan'})
+    dataset = pd.get_dummies(dataset, columns=['Origin'], prefix='', prefix_sep='')
+    train_dataset = dataset.sample(frac=0.8, random_state=0)
+    test_dataset = dataset.drop(train_dataset.index)
 
-normalizer = tf.keras.layers.Normalization(axis=-1)
-normalizer.adapt(np.array(train_features))
+    train_features = train_dataset.copy()
+    test_features = test_dataset.copy()
 
-normalizer = [[normalizer]]
+    train_labels = train_features.pop('MPG')
+    test_labels = test_features.pop('MPG')
 
-#########################################################
-# end of tensorflow tutorial, beginning of evolution example
+    normalizer = tf.keras.layers.Normalization(axis=-1)
+    normalizer.adapt(np.array(train_features))
 
-custom_config = {}
-custom_config['input_shapes'] = [[9]]
-custom_config['num_outputs'] = [1]
-custom_config['pop_size'] = 100
-custom_config['remote'] = True
-custom_config['loss'] = 'MeanAbsoluteError'
-custom_config['max_fit_epochs'] = 20
-custom_config['verbose'] = 1
-custom_config['metrics'] = ['mean_absolute_error']
-custom_config['direction'] = 'min'
-custom_config['remote_actors'] = 5
+    prelayers = []
+    prelayers.append(normalizer)
 
-evo_config.master_config.setup_user_config(custom_config)
+    #########################################################
+    # end of tensorflow tutorial, beginning of evolution example
 
-data = train_features, train_labels, test_features, test_labels
-worker = tensor_evolution.EvolutionWorker()
-worker.setup_preprocessing(normalizer)
-worker.evolve(data=data)
+    custom_config = {}
+    custom_config['input_shapes'] = [[9]]
+    custom_config['num_outputs'] = [1]
+    custom_config['pop_size'] = 200
+    custom_config['remote'] = True
+    custom_config['loss'] = 'MeanAbsoluteError'
+    custom_config['max_fit_epochs'] = 20
+    custom_config['verbose'] = 0
+    custom_config['metrics'] = ['mean_absolute_error']
+    custom_config['direction'] = 'min'
+    custom_config['remote_actors'] = 5
 
-best = worker.get_best_individual()
-tensor_net = best[1]
-model = tensor_net.build_model()
-model.compile(loss=worker.master_config.loss, optimizer=worker.master_config.opt,
-              metrics=worker.master_config.config['metrics'])
+    evo_config.master_config.setup_user_config(custom_config)
 
-model.fit(train_features, train_labels, epochs=100)
-model.evaluate(test_features, test_labels)
+    data = train_features, train_labels, test_features, test_labels
+    worker = tensor_evolution.EvolutionWorker()
+
+    worker.setup_preprocessing(prelayers)
+    worker.evolve(data=data)
+
+    best = worker.get_best_individual()
+    tensor_net = best[1]
+    model = tensor_net.build_model()
+    model.compile(loss=worker.master_config.loss, optimizer=worker.master_config.opt,
+                  metrics=worker.master_config.config['metrics'])
+
+    model.fit(train_features, train_labels, epochs=100)
+    model.evaluate(test_features, test_labels)
+
+
+if __name__ == "__main__":
+    main()

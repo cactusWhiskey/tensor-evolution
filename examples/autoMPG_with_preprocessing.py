@@ -87,7 +87,6 @@ def main():
     custom_config['remote'] = True
     custom_config['loss'] = 'MeanAbsoluteError'
     custom_config['max_fit_epochs'] = 20
-    custom_config['verbose'] = 0
     custom_config['metrics'] = ['mean_absolute_error']
     custom_config['direction'] = 'min'
     custom_config['remote_actors'] = 5

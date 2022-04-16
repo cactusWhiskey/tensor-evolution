@@ -56,15 +56,13 @@ class RemoteEvoActor:
             batch_size = None
 
         model.fit(x_train, y_train, epochs=config.config['max_fit_epochs'],
-                  callbacks=config.callbacks, verbose=config.config['verbose'],
+                  callbacks=config.callbacks, verbose=config.config['verbose'][0],
                   batch_size=batch_size)
-        _, test_acc = model.evaluate(x_test, y_test)
+        _, test_acc = model.evaluate(x_test, y_test, verbose=config.config['verbose'][1])
 
         length = len(individual[1].get_middle_nodes())
-        complexity_penalty = config.config['complexity_penalty']
-        penalty = complexity_penalty * length
         # noinspection PyRedundantParentheses
-        return (test_acc - penalty,)
+        return (test_acc,)
 
 
 # def cx_chain(ind1, ind2):
@@ -114,8 +112,10 @@ class EvolutionWorker:
         self.toolbox.register("mutate_delete", self._mutate_delete)
         self.toolbox.register("mutate_mutate", self._mutate_mutate)
         self.toolbox.register("mutate_hyper", self._mutate_hyper)
-        self.toolbox.register("select", tools.selTournament,
-                              tournsize=self.master_config.config['t_size'])
+        self.toolbox.register("select", tools.selDoubleTournament,
+                              fitness_size=self.master_config.config['t_size'],
+                              parsimony_size=self.master_config.config['parsimony_size'],
+                              fitness_first=True)
 
     def _setup_stats(self):
         self.stats = tools.Statistics(key=lambda ind: ind.fitness.values)
@@ -172,17 +172,15 @@ class EvolutionWorker:
             batch_size = None
 
         model.fit(x_train, y_train, epochs=config.config['max_fit_epochs'],
-                  callbacks=config.callbacks, verbose=config.config['verbose'],
+                  callbacks=config.callbacks, verbose=config.config['verbose'][0],
                   batch_size=batch_size)
-        _, test_acc = model.evaluate(x_test, y_test)
+        _, test_acc = model.evaluate(x_test, y_test, verbose=config.config['verbose'][1])
 
         if config.config['global_cache_training']:
             tensor_net.store_weights(model, direction_into_tn=True)
-
-        length = len(individual[1].get_middle_nodes())
-        penalty = config.config['complexity_penalty'] * length
+        
         # noinspection PyRedundantParentheses
-        return (test_acc - penalty,)
+        return (test_acc,)
 
     @staticmethod
     def _is_too_big(individual) -> bool:
@@ -199,7 +197,8 @@ class EvolutionWorker:
     @staticmethod
     def _mutate_insert(individual: list):
         if EvolutionWorker._is_too_big(individual):
-            return
+            # noinspection PyRedundantParentheses
+            return (individual, )
 
         config = individual[0]
         tensor_net = individual[1]
@@ -394,6 +393,9 @@ class EvolutionWorker:
             # save data to disk
             self._save_every(gen)
 
+            print(f"Largest: {self._get_biggest_individual_size()}, "
+                  f"Avg: {self._get_average_individual_size()}")
+
         print("-- End of (successful) evolution --")
 
         best_ind = tools.selBest(self.pop, 1)[0]
@@ -530,3 +532,22 @@ class EvolutionWorker:
             prelayers.append(model.layers[i])
 
         self.preprocessing_layers = prelayers
+
+    def _get_biggest_individual_size(self):
+        """For debugging use, returns member of population with the most nodes.
+        Useful for checking if bloat control is working."""
+        biggest = 0
+        for individual in self.pop:
+            tensor_net = individual[1]
+            size = len(tensor_net.get_middle_nodes())
+            biggest = max(biggest, size)
+        return biggest
+
+    def _get_average_individual_size(self):
+        sum = 0
+        for individual in self.pop:
+            tensor_net = individual[1]
+            size = len(tensor_net.get_middle_nodes())
+            sum += size
+        avg = sum/len(self.pop)
+        return avg

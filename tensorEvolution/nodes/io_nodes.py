@@ -61,8 +61,10 @@ class OutputNode(TensorNode):
     def _build(self, layers_so_far) -> KerasTensor:
         layers_so_far = tf.keras.layers.Flatten()(layers_so_far)
         self.keras_tensor_input_name = layers_so_far.name
-        return tf.keras.layers.Dense(self.num_outputs,
-                                     activation=None)(layers_so_far)
+        outputs = tf.keras.layers.Dense(self.num_outputs,
+                                        activation=None)
+        self.name = outputs.name
+        return outputs(layers_so_far)
 
     @staticmethod
     def create_random():

@@ -117,9 +117,11 @@ class DenseNode(TensorNode):
     def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
         self.keras_tensor_input_name = layers_so_far.name
         regularizer = evo_config.EvoConfig.build_regularizer(self.kernel_regularizer)
-        return tf.keras.layers.Dense(self.num_units,
-                                     activation=self.activation,
-                                     kernel_regularizer=regularizer)(layers_so_far)
+        dense = tf.keras.layers.Dense(self.num_units,
+                                      activation=self.activation,
+                                      kernel_regularizer=regularizer)
+        self.name = dense.name
+        return dense(layers_so_far)
 
     @staticmethod
     def create_random():

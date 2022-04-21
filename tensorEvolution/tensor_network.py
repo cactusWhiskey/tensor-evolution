@@ -25,6 +25,7 @@ class TensorNetwork:
         self.preprocessing_ids = []
         self.input_shapes = input_shapes
         self.output_units = output_units
+        self.complexity = 0
 
         if connected:
             self._create_inputs(input_shapes)
@@ -294,39 +295,103 @@ class TensorNetwork:
         node_to_mutate = list(nodes.values())[position]
         node_to_mutate.mutate()
 
-    def store_weights(self, model: tf.keras.Model, direction_into_tn: bool):
+    # def set_weights(self, model_data: list[tuple]):
+    #     """
+    #     Stores model weights into the genome
+    #     :param model_data: list of tuples, each tuple contains (layer_name, layer_weights)
+    #     """
+    #
+    #     nodes_can_cache = self.get_nodes_can_cache()
+    #     for node in nodes_can_cache.values():
+    #         if node.name is None:
+    #             raise AttributeError(f"Nodes that can cache weights should not have None for their name attribute. "
+    #                                  f"Check that name is being set correctly in the node. "
+    #                                  f"Got node: {str(node)}")
+    #
+    #         for layer_tuple in model_data:
+    #             layer_name, layer_weights = layer_tuple
+    #             if layer_name is None or layer_weights is None:
+    #                 raise AttributeError(f"layer names and weights can't be None type. "
+    #                                      f"Check that model is compiled correctly."
+    #                                      f"Got {layer_name} with weights {str(layer_weights)}")
+    #
+    #             if len(layer_weights) == 0:
+    #                 # this layer has no weights, so it should be removed from consideration
+    #                 continue  # move on to next layer
+    #
+    #             # found a match between model layer and node
+    #             if layer_name == node.name:
+    #                 node.weights = layer_weights
+    #                 break  # node weights are set, break to next node (breaks out of the layer loop)
+
+    def set_weights(self, model: tf.keras.Model):
         """
-        Stores model weights into the genome or gets them from the genome
-        :param model: model to store weights from or load weights to
-        :param direction_into_tn: True stores weights into the network,
-        False gets them and loads them into the model
-        :return:
+        Stores model weights into the genome
+        :param model: NN model
         """
-        layers = model.layers
-        nodes_to_cache = self.get_nodes_can_cache()
-        for node in nodes_to_cache.values():
-            if node.weights is None:
-                continue
 
-            for layer in layers:
-                if layer.input.name == node.keras_tensor_input_name:
-                    if direction_into_tn:
-                        weights = layer.get_weights()
-                        if len(weights) == node.required_num_weights:
-                            node.weights = weights
-                            break
-                    else:
-                        node_weights = node.weights
-                        layer_weights = layer.get_weights()
+        nodes_can_cache = self.get_nodes_can_cache()
+        for node in nodes_can_cache.values():
+            if node.name is None:
+                raise AttributeError(f"Nodes that can cache weights should not have None for their name attribute. "
+                                     f"Check that name is being set correctly in the node. "
+                                     f"Got node: {str(node)}")
 
-                        if len(node_weights) != len(layer_weights):
-                            continue
+            for layer in model.layers:
+                # if layer.name is None or layer.weights is None:
+                #     raise AttributeError(f"layer names and weights can't be None type. "
+                #                          f"Check that model is compiled correctly."
+                #                          f"Got {layer.name} with weights {str(layer.weights)}")
 
-                        for i in range(len(node_weights)):
-                            if node_weights[i].shape != layer_weights[i].shape:
-                                continue
+                if len(layer.weights) == 0:
+                    # this layer has no weights, so it should be removed from consideration
+                    continue  # move on to next layer
 
-                        layer.set_weights(node_weights)
+                # found a match between model layer and node
+                if layer.name == node.name:
+                    node.weights = layer.get_weights()
+                    break  # node weights are set, break to next node (breaks out of the layer loop)
+
+    def get_weights(self, model):
+        """
+            Gets weights from the genome
+            :param model: NN model
+            """
+
+        nodes_can_cache = self.get_nodes_can_cache()
+
+        for layer in model.layers:
+            if len(layer.weights) > 0:
+                # layer's weights > 0, so search for a node to pull weights from
+                # loop through the nodes which could match this layer
+                for node in nodes_can_cache.values():
+                    if node.name is None:
+                        raise AttributeError(
+                            f"Nodes that can cache weights should not have None for their name attribute. "
+                            f"Check that name is being set correctly in the node. "
+                            f"Got node: {str(node)}")
+
+                    # found a match between model layer and node
+                    if layer.name == node.name:
+                        if node.weights is not None:
+                            # node is a match, and it has weights stored
+                            # check that lengths match
+                            if len(node.weights) != len(layer.weights):
+                                raise ValueError(f"Can't set layer weights because node weights have incorrect length."
+                                                 f"Node: {node.label}, weights len: {len(node.weights)}."
+                                                 f"Layer: {layer.name}, weights len: {len(layer.weights)}")
+                            # lengths check out, now check shapes
+                            shapes_okay = True
+                            for i in range(len(node.weights)):
+                                # verify the shapes still make sense
+                                # it's possible weight shapes have changed due to crossover or mutation
+                                if node.weights[i].shape != layer.weights[i].shape:
+                                    shapes_okay = False
+                                    break  # no need to check any more shapes
+
+                            if shapes_okay:
+                                # everything checked out, set the layer weights from the node weights
+                                layer.set_weights(node.weights)
 
     def build_model(self) -> tf.keras.Model:
         """

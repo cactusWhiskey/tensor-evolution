@@ -20,6 +20,7 @@ class TensorNode(ABC):
         self.is_branch_termination = False
         self.node_allows_cache_training = False
         self.weights = None
+        self.name = None
         self.keras_tensor_input_name = None
         self.required_num_weights = 2
 
@@ -27,10 +28,25 @@ class TensorNode(ABC):
         """Converts this class to serial form
         :return dict that can be serialized
         """
+        # KerasTensor doesn't serialize well
         saved_layers = self.saved_layers
+        # Easiest to just not save it, it's not critical anyway
+        # (can be rebuilt first time genome is built)
         self.saved_layers = None
+
+        # weights are a list of ndarrays, which will cause an error with default json dump
+        # first store existing weights
+        weights = self.weights
+        # None check
+        if self.weights is not None:
+            converted_weights = []
+            for ndarray_weights in self.weights:
+                converted_weights.append(ndarray_weights.tolist())
+            self.weights = converted_weights
+
         serial_dict = self._serialize()
         self.saved_layers = saved_layers
+        self.weights = weights
         return serial_dict
 
     def _serialize(self) -> dict:
@@ -134,3 +150,6 @@ class TensorNode(ABC):
         """Subclasses must implement a clone method which returns
         a deep copy of the given node"""
         raise NotImplementedError
+
+    def __str__(self):
+        return f"Node ID: {self.id}, Label: {self.label}"

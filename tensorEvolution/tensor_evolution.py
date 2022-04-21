@@ -1,75 +1,20 @@
 """This module contains the main evolution loop"""
 
 import json
-
 import random
+
 import numpy
 import ray
 import tensorflow as tf
 from deap import creator, base, tools
 from matplotlib import pyplot as plt
+from ray.util.actor_pool import ActorPool
 
-from tensorEvolution import tensor_encoder
-from tensorEvolution.ActorPoolExtension import ActorPoolExtension
-from tensorEvolution import tensor_network
-from tensorEvolution.nodes import node_utils
 from tensorEvolution import evo_config
-
-
-# noinspection PyCallingNonCallable
-@ray.remote(num_cpus=evo_config.master_config.config['remote_actor_cpus'],
-            num_gpus=evo_config.master_config.config['remote_actor_gpus'])
-class RemoteEvoActor:
-    """This class is a Ray remote actor.
-    This actor performs evaluation on individuals in the population."""
-
-    def __init__(self, data):
-        """initialize an actor
-
-            Args:
-                data: data which will be passed to the model.fit method for training. Must be
-                    a tuple of form (x_train, y_train, x_test, y_test)
-            """
-
-        self.data = data
-
-    def eval(self, individual: list):
-        """Remote evaluation function, evaluates and individual's fitness.
-        The individual is evaluated by compiling and training a model based on
-        the individual's genome. The test accuracy is used as the fitness (minus
-        a penalty for model complexity)
-
-         Args:
-             individual: An individual from the population
-             """
-
-        config = individual[0]
-        x_train, y_train, x_test, y_test = self.data
-        tensor_net = individual[1]
-        model = tensor_net.build_model()
-        model.compile(loss=config.loss,
-                      optimizer=config.opt,
-                      metrics=config.config['metrics'])
-
-        batch_size = config.config['batch_size']
-        if batch_size == 'None':
-            batch_size = None
-
-        model.fit(x_train, y_train, epochs=config.config['max_fit_epochs'],
-                  callbacks=config.callbacks, verbose=config.config['verbose'][0],
-                  batch_size=batch_size)
-        _, test_acc = model.evaluate(x_test, y_test, verbose=config.config['verbose'][1])
-
-        length = len(individual[1].get_middle_nodes())
-        # noinspection PyRedundantParentheses
-        return (test_acc,)
-
-
-# def cx_chain(ind1, ind2):
-#     tn = ind1[1]
-#     other_tn = ind2[1]
-#     tensor_network.cx_chain(tn, other_tn)
-#     return ind1, ind2
+from tensorEvolution import tensor_encoder
+from tensorEvolution import tensor_network
+from tensorEvolution.evolutionOperators import selection, crossover, mutation, evaluation
+from tensorEvolution.evolutionOperators.evaluation import RemoteEvoActor
 
 
 class EvolutionWorker:
@@ -106,16 +51,16 @@ class EvolutionWorker:
                               input_shapes=self.master_config.config['input_shapes'],
                               num_outputs=self.master_config.config['num_outputs'])
         self.toolbox.register("population", tools.initRepeat, list, self.toolbox.individual)
-        self.toolbox.register("mate", self._cx_single_node)
-        self.toolbox.register("cx_hyper", self._cx_hyper)
-        self.toolbox.register("mutate_insert", self._mutate_insert)
-        self.toolbox.register("mutate_delete", self._mutate_delete)
-        self.toolbox.register("mutate_mutate", self._mutate_mutate)
-        self.toolbox.register("mutate_hyper", self._mutate_hyper)
-        self.toolbox.register("select", tools.selDoubleTournament,
-                              fitness_size=self.master_config.config['t_size'],
-                              parsimony_size=self.master_config.config['parsimony_size'],
-                              fitness_first=True)
+        self.toolbox.register("mate", crossover.cx_single_node)
+        self.toolbox.register("cx_hyper", crossover.cx_hyper)
+        self.toolbox.register("mutate_insert", mutation.mutate_insert)
+        self.toolbox.register("mutate_delete", mutation.mutate_delete)
+        self.toolbox.register("mutate_mutate", mutation.mutate_mutate)
+        self.toolbox.register("mutate_hyper", mutation.mutate_hyper)
+        self.toolbox.register("select", selection.double_tournament,
+                              fitness_t_size=self.master_config.config['fitness_t_size'],
+                              prob_sel_smallest=self.master_config.config['prob_sel_least_complex'],
+                              do_fitness_first=True)
 
     def _setup_stats(self):
         self.stats = tools.Statistics(key=lambda ind: ind.fitness.values)
@@ -148,118 +93,6 @@ class EvolutionWorker:
         ind.append(tensor_net)
         return ind
 
-    @staticmethod
-    def _eval_remote(actor: RemoteEvoActor, individual: list):
-        individual = list(individual)
-        return actor.eval.remote(individual)
-
-    @staticmethod
-    def _evaluate(individual: list, data: tuple):
-        x_train, y_train, x_test, y_test = data
-        config = individual[0]
-        tensor_net = individual[1]
-
-        model = tensor_net.build_model()
-
-        model.compile(loss=config.loss, optimizer=config.opt,
-                      metrics=config.config['metrics'])
-
-        if config.config['global_cache_training']:
-            tensor_net.store_weights(model, direction_into_tn=False)
-
-        batch_size = config.config['batch_size']
-        if batch_size == 'None':
-            batch_size = None
-
-        model.fit(x_train, y_train, epochs=config.config['max_fit_epochs'],
-                  callbacks=config.callbacks, verbose=config.config['verbose'][0],
-                  batch_size=batch_size)
-        _, test_acc = model.evaluate(x_test, y_test, verbose=config.config['verbose'][1])
-
-        if config.config['global_cache_training']:
-            tensor_net.store_weights(model, direction_into_tn=True)
-        
-        # noinspection PyRedundantParentheses
-        return (test_acc,)
-
-    @staticmethod
-    def _is_too_big(individual) -> bool:
-        config = individual[0]
-        tensor_net = individual[1]
-
-        size = len(tensor_net.get_middle_nodes())
-        max_size = config.config['max_network_size']
-
-        if size >= max_size:
-            return True
-        return False
-
-    @staticmethod
-    def _mutate_insert(individual: list):
-        if EvolutionWorker._is_too_big(individual):
-            # noinspection PyRedundantParentheses
-            return (individual, )
-
-        config = individual[0]
-        tensor_net = individual[1]
-
-        position = random.randint(0, len(tensor_net.get_valid_insert_positions()) - 1)
-        node_type = random.choice(config.config['valid_node_types'])
-        node = node_utils.create(node_type)
-        tensor_net.insert_node(node, position)
-        # noinspection PyRedundantParentheses
-        return (individual,)
-
-    @staticmethod
-    def _mutate_mutate(individual: list):
-        tensor_net = individual[1]
-        length = len(tensor_net.get_mutatable_nodes())
-
-        if length == 0:  # nothing to mutate
-            # noinspection PyRedundantParentheses
-            return (individual,)
-
-        position = random.randint(0, length - 1)
-        tensor_net.mutate_node(position)
-        # noinspection PyRedundantParentheses
-        return (individual,)
-
-    @staticmethod
-    def _mutate_delete(individual: list):
-        tensor_net = individual[1]
-        length = len(tensor_net.get_middle_nodes())
-
-        if length == 0:  # nothing to delete
-            # noinspection PyRedundantParentheses
-            return (individual,)
-
-        position = random.randint(0, length - 1)
-        node_id = list(tensor_net.get_middle_nodes().keys())[position]
-        tensor_net.delete_node(node_id=node_id)
-        # noinspection PyRedundantParentheses
-        return (individual,)
-
-    @staticmethod
-    def _mutate_hyper(individual: list):
-        ind_hyper_params = individual[0]
-        ind_hyper_params.mutate()
-        # noinspection PyRedundantParentheses
-        return (individual,)
-
-    @staticmethod
-    def _cx_hyper(ind1, ind2):
-        hyper1 = ind1[0]
-        hyper2 = ind2[0]
-        evo_config.cross_over(hyper1, hyper2)
-        return ind1, ind2
-
-    @staticmethod
-    def _cx_single_node(ind1, ind2):
-        tensor_net = ind1[1]
-        other_net = ind2[1]
-        tensor_network.cx_single_node(tensor_net, other_net)
-        return ind1, ind2
-
     def _setup_creator(self):
         # pylint: disable=E1101
         direction = self.master_config.config['direction']
@@ -280,8 +113,9 @@ class EvolutionWorker:
         """
         # pylint: disable=E1101
 
+        # configure the evaluation function based on remote vs local execution
         if not self.master_config.config['remote']:
-            self.toolbox.register("evaluate", self._evaluate, data=data)
+            self.toolbox.register("evaluate", evaluation.evaluate, data=data)
         else:
             ray.init()
             actors = []
@@ -289,9 +123,10 @@ class EvolutionWorker:
                 actor = RemoteEvoActor.remote(data)
                 actors.append(actor)
 
-            self.pool = ActorPoolExtension(actors)
-            self.toolbox.register("evaluate", self._eval_remote)
+            self.pool = ActorPool(actors)
+            self.toolbox.register("evaluate", evaluation.eval_remote)
 
+        # now start the evolution loop
         self._evolve()
 
     def _crossover_on_population(self, offspring: list):
@@ -336,6 +171,41 @@ class EvolutionWorker:
                     self.toolbox.mutate_hyper(mutant)
                     del mutant.fitness.values
 
+    def _evaluation_on_individuals(self, individuals):
+        # pass the index with the individual to the evaluation function
+        # the index just gets passed back with the results so we can
+        # identify which result goes with which individual later
+        indexes_with_inds = [(index, ind) for index, ind in enumerate(individuals)]
+
+        # check if remote
+        remote = self.master_config.config['remote']
+        if remote:
+            # use remote function
+            eval_results = list(self.pool.map_unordered(self.toolbox.evaluate, indexes_with_inds))
+        else:
+            # use local function
+            eval_results = list(map(self.toolbox.evaluate, indexes_with_inds))
+
+        for result in eval_results:
+            # fitness tuple is always in the zero position of the evaluation returned results
+            fitness = result[0]
+            # index is in the 2 position
+            index = result[2]
+            # get the individual this fitness result is for
+            this_individual = individuals[index]
+            # set the fitness
+            this_individual.fitness.values = fitness
+            if remote:
+                # remote execution has its own copies of the individuals it evaluated,
+                # so complexity and weight cache didn't get done on the local (master) copy of
+                # the individuals. Need to do that now.
+
+                # __dict__ from the remote individual is returned by the eval function at position 1
+                tensor_dict_from_remote = result[1]
+                tensor_net = this_individual[1]  # our local copy of this individual
+                # copy the updated state over
+                tensor_net.__dict__ = tensor_dict_from_remote
+
     def _gen_bookkeeping(self, gen):
         self.record = self.stats.compile(self.pop)
         self.logbook.record(gen=gen, **self.record)
@@ -346,24 +216,23 @@ class EvolutionWorker:
 
     def _evolve(self):
         # pylint: disable=E1101
+        self._pre_evolution_tasks()
+        self._main_evolution_loop()
+        self._post_evolution_tasks()
 
+    def _pre_evolution_tasks(self):
         # set up toolbox
         self._setup_toolbox()
 
-        # build population
+        # build population if it wasn't loaded from disk
         if self.pop is None:
             self.pop = self.toolbox.population(n=self.master_config.config['pop_size'])
             self._save_preprocessing_layers()
 
-        # Evaluate the entire population
-        if self.master_config.config['remote']:
-            fitnesses = self.pool.map_ordered_return_all(self.toolbox.evaluate, self.pop)
-        else:
-            fitnesses = list(map(self.toolbox.evaluate, self.pop))
-        for ind, fit in zip(self.pop, fitnesses):
-            ind.fitness.values = fit
+        # compute initial fitness of population
+        self._evaluation_on_individuals(self.pop)
 
-        # Begin main evolution loop
+    def _main_evolution_loop(self):
         for gen in range(self.master_config.config['ngen']):
             # Select the next generation individuals
             offspring = self.toolbox.select(self.pop, len(self.pop))
@@ -377,12 +246,7 @@ class EvolutionWorker:
 
             # Evaluate the individuals with an invalid fitness
             invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-            if self.master_config.config['remote']:
-                fitnesses = self.pool.map_ordered_return_all(self.toolbox.evaluate, invalid_ind)
-            else:
-                fitnesses = list(map(self.toolbox.evaluate, invalid_ind))
-            for ind, fit in zip(invalid_ind, fitnesses):
-                ind.fitness.values = fit
+            self._evaluation_on_individuals(invalid_ind)
 
             # The population is entirely replaced by the offspring
             self.pop[:] = offspring
@@ -396,6 +260,7 @@ class EvolutionWorker:
             print(f"Largest: {self._get_biggest_individual_size()}, "
                   f"Avg: {self._get_average_individual_size()}")
 
+    def _post_evolution_tasks(self):
         print("-- End of (successful) evolution --")
 
         best_ind = tools.selBest(self.pop, 1)[0]
@@ -528,7 +393,7 @@ class EvolutionWorker:
         model = tf.keras.models.load_model(preprocessing_save_path)
 
         prelayers = []
-        for i in range(1, (self.preprocessing_layers_length+ 1)):
+        for i in range(1, (self.preprocessing_layers_length + 1)):
             prelayers.append(model.layers[i])
 
         self.preprocessing_layers = prelayers
@@ -544,10 +409,10 @@ class EvolutionWorker:
         return biggest
 
     def _get_average_individual_size(self):
-        sum = 0
+        sum_sizes = 0
         for individual in self.pop:
             tensor_net = individual[1]
             size = len(tensor_net.get_middle_nodes())
-            sum += size
-        avg = sum/len(self.pop)
+            sum_sizes += size
+        avg = sum_sizes / len(self.pop)
         return avg

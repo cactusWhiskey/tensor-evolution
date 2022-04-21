@@ -63,9 +63,10 @@ m_insert: 0.3 #prob to insert a new layer into a genome
 m_del: 0.1 #prob to delete a layer from a genome
 m_mut: 0.2 #prob to mutate an existing layer in a genome
 pop_size: 20 #population size
-t_size: 7 #tournament size
+fitness_t_size: 7 #fitness tournament size
+complexity_t_size: 2 #complexity tournament size
+prob_sel_least_complex: 0.7 #prob to select least complex network in a complexity tournament
 ngen: 30 #generations to run evolution for
-parsimony_size: 1.7
 max_network_size: 10 #maximum size of the generated neural networks, doesn't include inputs, outputs, or preprocessing
 
 
@@ -84,7 +85,7 @@ metrics: ['accuracy'] #metrics for neural network model
 max_fit_epochs: 6 #max number of epochs to train a genome for
 early_stopping: {use_early: True, monitor: 'loss', patience: 2 ,min_delta: 0.02}
 verbose: [0,0] #train verbose, test verbose
-batch_size: 'None'
+batch_size: 'None' # batch sized used for the NN training fit method
 
 
 ####
@@ -95,13 +96,13 @@ hyper_mut: 0.1 # prob to mutate hyperparms
 hyper_cx: 0.2 # prob of hyperparam crossover
 hyper_cx_uniform_prob: 0.2 # cross over is uniform type, this is prob that any given hyper param is swapped
 mutatable_keys: ['cx', 'm_mut', 'm_insert', 'm_del', 'hyper_cx',
-                 'hyper_mut', 'learning_rate', 'opt']
+                 'hyper_mut', 'learning_rate', 'opt'] # which hyperparams are valid to mutate
 
 
 ####
 # Save settings
 ####
 save_pop_every: 5 # save population to disk every n generations
-save_pop_filepath: 'pop.txt'
-preprocessing_save_path: 'save'
+save_pop_filepath: 'pop.txt' # path to save population
+preprocessing_save_path: 'save' # path to save preprocessing layers. needs to be a directory
 ...

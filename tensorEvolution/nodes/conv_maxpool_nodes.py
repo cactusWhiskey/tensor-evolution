@@ -36,10 +36,12 @@ class Conv2dNode(TensorNode):
     def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
         self.keras_tensor_input_name = layers_so_far.name
         regularizer = evo_config.EvoConfig.build_regularizer(self.kernel_regularizer)
-        return tf.keras.layers.Conv2D(self.filters, self.kernel_size,
-                                      activation=self.activation,
-                                      padding=self.padding,
-                                      kernel_regularizer=regularizer)(layers_so_far)
+        conv2d = tf.keras.layers.Conv2D(self.filters, self.kernel_size,
+                                        activation=self.activation,
+                                        padding=self.padding,
+                                        kernel_regularizer=regularizer)
+        self.name = conv2d.name
+        return conv2d(layers_so_far)
 
     @staticmethod
     def create_random():
@@ -136,10 +138,12 @@ class Conv3dNode(TensorNode):
     def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
         self.keras_tensor_input_name = layers_so_far.name
         regularizer = evo_config.EvoConfig.build_regularizer(self.kernel_regularizer)
-        return tf.keras.layers.Conv3D(self.filters, self.kernel_size,
-                                      activation=self.activation,
-                                      padding=self.padding,
-                                      kernel_regularizer=regularizer)(layers_so_far)
+        conv3d = tf.keras.layers.Conv3D(self.filters, self.kernel_size,
+                                        activation=self.activation,
+                                        padding=self.padding,
+                                        kernel_regularizer=regularizer)
+        self.name = conv3d.name
+        return conv3d(layers_so_far)
 
     @staticmethod
     def create_random():

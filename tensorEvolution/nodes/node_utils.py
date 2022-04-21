@@ -2,6 +2,7 @@
 import math
 import tensorflow as tf
 import sympy.ntheory as sym
+import numpy as np
 from keras.engine.keras_tensor import KerasTensor
 from tensorEvolution.nodes import conv_maxpool_nodes, basic_nodes, io_nodes, rnn_nodes
 from tensorEvolution.nodes.tensor_node import TensorNode
@@ -49,6 +50,16 @@ def deserialize_node(node_dict: dict):
     node = create(node_dict['label'])
     node.__dict__ = node_dict
     node.id = int(node.id)
+    if node.weights == "None":
+        node.weights = None
+    else:
+        # will be a list of ndarray.tolist()
+        # need to convert back to list of ndarrays
+        converted_weights = []
+        for list_weights in node.weights:
+            converted_weights.append(np.array(list_weights))
+        node.weights = converted_weights
+    # do cleanup specific to a particular node type (gets implemented in subclasses)
     node.deserialize_cleanup()
     return node
 

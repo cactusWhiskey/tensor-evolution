@@ -11,21 +11,26 @@ class InputNode(TensorNode):
 
     def __init__(self, input_shape):
         super().__init__()
-        for index, dim in enumerate(list(input_shape)):
-            # When the population is first created from yaml config,
-            # it's possible we have a "None" string
-            if dim == "None":
-                input_shape[index] = None
 
-        self.input_shape = tuple(input_shape)
+        if input_shape is None:
+            self.input_shape = None
+        else:
+            for index, dim in enumerate(list(input_shape)):
+                # When the population is first created from yaml config,
+                # it's possible we have a "None" string
+                if dim == "None":
+                    input_shape[index] = None
+            self.input_shape = tuple(input_shape)
+
         self.is_branch_root = True
         self.dtype = evo_config.master_config.input_dtype
 
         # have to do this check here (instead of in the loop above) to catch
         # the cases where an input node is crated via cloning or deserialization
-        for dim in self.input_shape:
-            if dim is None:
-                self.variable_output_size = True
+        if self.input_shape is not None:
+            for dim in self.input_shape:
+                if dim is None:
+                    self.variable_output_size = True
 
     def _clone(self):
         """

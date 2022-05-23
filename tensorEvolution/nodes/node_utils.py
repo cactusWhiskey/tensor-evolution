@@ -58,7 +58,7 @@ def deserialize_node(node_dict: dict):
     node = create(node_dict['label'])
     node.__dict__ = node_dict
     node.id = int(node.id)
-    if node.weights == "None":
+    if node.weights == "None" or node.weights is None:
         node.weights = None
     else:
         # will be a list of ndarray.tolist()

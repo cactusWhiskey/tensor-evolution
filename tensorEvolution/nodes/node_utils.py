@@ -1,10 +1,12 @@
 """Utilities and creator function for tensorNodes"""
+import copy
 import math
 import tensorflow as tf
 import sympy.ntheory as sym
 import numpy as np
 from keras.engine.keras_tensor import KerasTensor
-from tensorEvolution.nodes import conv_maxpool_nodes, basic_nodes, io_nodes, rnn_nodes
+from tensorEvolution.nodes import conv_maxpool_nodes, basic_nodes, io_nodes, \
+    rnn_nodes, global_avg_pooling, embedding
 from tensorEvolution.nodes.tensor_node import TensorNode
 
 
@@ -37,6 +39,12 @@ def create(node_type: str) -> TensorNode:
         return basic_nodes.DropoutNode()
     elif node_type == "LstmNode":
         return rnn_nodes.LstmNode.create_random()
+    elif node_type == "GlobalAveragePooling1DNode":
+        return global_avg_pooling.GlobalAveragePooling1DNode()
+    elif node_type == "EmbeddingNode":
+        return embedding.EmbeddingNode(None, None)
+    elif node_type == "ConcatNode":
+        return basic_nodes.ConcatNode()
     else:
         raise ValueError("Unsupported node type: " + str(node_type))
 
@@ -136,7 +144,55 @@ def _shape_from_primes(n, desired_length) -> tuple:
     return shape
 
 
-def reshape_input(layers_so_far: KerasTensor, target_rank: int, simple_channel_addition=True) -> KerasTensor:
+def make_shapes_same(layers_so_far: list) -> list:
+    """
+        The inputs to the addition node can be tensors of any shape.
+        This method adds flatten, dense, and reshape layers
+        as required to force the two inputs to have
+        identical shapes.
+        :param layers_so_far: list of multiple kerasTensors
+        :return: list of (minimum of) two tensors of identical shape        """
+
+    # arbitrarily set main branch to first branch in the list of layers
+    main_branch = layers_so_far[0]
+    return_list = copy.deepcopy(layers_so_far)
+    # iterate through the remaining branches
+    done = False
+    while not done:
+        for index, branch in enumerate(layers_so_far[1:], start=1):
+            if main_branch.shape[1:] != branch.shape[1:]:
+                if branch.shape.rank != 2:
+                    branch = tf.keras.layers.Flatten()(branch)
+                if main_branch.shape.rank == 2:  # dense shape/flat shape
+                    units = main_branch.shape[1]  # main_shape[0] will be None
+                    branch = tf.keras.layers.Dense(units)(branch)
+                    done = True
+                elif main_branch.shape.rank in (4, 5):  # Conv2D, 3D shapes
+                    units = 1
+                    for i in range(1, main_branch.shape.rank):
+                        units *= main_branch.shape[i]  # total length
+                    branch = tf.keras.layers.Dense(units)(branch)
+                    branch = tf.keras.layers.Reshape(main_branch.shape[1:])(branch)
+                    done = True
+                else:
+                    main_branch = tf.keras.layers.Flatten()(main_branch)
+                    done = False
+                    break
+            else:
+                done = True
+            return_list[0] = main_branch
+            return_list[index] = branch
+
+    main_shape = return_list[0].shape
+    for branch in return_list[1:]:
+        if main_shape[1:] != branch.shape[1:]:
+            raise ValueError("Debug shapes")
+
+    return return_list
+
+
+def reshape_input(layers_so_far: KerasTensor, target_rank: int,
+                  simple_channel_addition=True) -> KerasTensor:
     """function to reshape input to target_rank input.
     Currently, covers the following cases:
     - rank 2 (i.e. 1D) to rank 4 (i.e. 2D)
@@ -148,6 +204,7 @@ def reshape_input(layers_so_far: KerasTensor, target_rank: int, simple_channel_a
         target_rank: rank we want to reshape to. Note that 1D input is rank 2 (batch, data).
                         2D input is rank 4 (batch, rows, cols, channels).
                         3D input is rank 5 (batch, rows, cols, depth, channels).
+                        time series data is rank 3 (batch, steps, features)
         simple_channel_addition: flag which, if true allows a channel to be added
                         when the given shape is 1 rank away from the desired shape.
                         Set to false if you want to force the input to be reshaped, even when

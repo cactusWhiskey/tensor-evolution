@@ -7,7 +7,7 @@ import random
 import tensorflow as tf
 import networkx as nx
 from matplotlib import pyplot as plt
-from tensorEvolution import tensor_encoder
+from tensorEvolution import tensor_encoder, evo_config
 from tensorEvolution.nodes import tensor_node, io_nodes, node_utils, basic_nodes
 
 
@@ -16,23 +16,23 @@ class TensorNetwork:
     id_iter = itertools.count(100)
 
     def __init__(self, input_shapes: list, output_units: list, connected=True,
-                 preprocessing_layers=None):
+                 preprocessing_layers: list = None, initial_nodes: list = None):
         self.graph = nx.MultiDiGraph()
         self.net_id = next(TensorNetwork.id_iter)
         self.all_nodes = {}
         self.input_ids = []
         self.output_ids = []
         self.preprocessing_ids = []
+        self.initial_ids = []
         self.input_shapes = input_shapes
         self.output_units = output_units
         self.complexity = 0
 
         if connected:
             self._create_inputs(input_shapes)
-            if preprocessing_layers is None:
-                self._create_outputs(output_units)
-            else:
-                self._create_preprocessing_and_outputs(preprocessing_layers, output_units)
+            self._create_prenodes_and_outputs(output_units,
+                                              preprocessing_layers=preprocessing_layers,
+                                              initial_nodes=initial_nodes)
 
     def serialize(self) -> dict:
         """Creates serializable version of this class"""
@@ -74,7 +74,10 @@ class TensorNetwork:
         node_cross_ref = {}
         for node_id, node in self.all_nodes.items():
             cloned_node = node.clone()
-            clone_tn.register_node(cloned_node)
+            label_override = None
+            if cloned_node.is_initial_node:
+                label_override = "InitialNode"
+            clone_tn.register_node(cloned_node, label_override=label_override)
             node_cross_ref[node_id] = cloned_node.id
 
         for edge in self.graph.edges:
@@ -86,69 +89,145 @@ class TensorNetwork:
 
         return clone_tn
 
-    def _create_inputs(self, input_shapes: list, preprocessing_layers=None):
-        if len(input_shapes) > 1:
-            raise ValueError("Multiple inputs not yet supported")
-
+    def _create_inputs(self, input_shapes: list):
         for shape in input_shapes:
             node = io_nodes.InputNode(shape)
-            node.preprocessing_layers = preprocessing_layers
             self.register_node(node)
 
-    def _create_outputs(self, output_units: list):
-        for units in output_units:
-            node = io_nodes.OutputNode(units)
-            self.register_node(node)
+    def _create_prenodes_and_outputs(self, output_units: list,
+                                     preprocessing_layers: list[list] = None,
+                                     initial_nodes: list[list] = None):
 
-            for input_id in self.input_ids:
-                self.graph.add_edge(input_id, node.id)
-
-    def _create_preprocessing_and_outputs(self, preprocessing_layers: list, output_units: list):
-        preprocess_node = basic_nodes.PreprocessingNode(preprocessing_layers)
-        self.register_node(preprocess_node)
-
-        for input_id in self.input_ids:
-            self.graph.add_edge(input_id, preprocess_node.id)
-
+        # start by creating all the output nodes
         for units in output_units:
             output_node = io_nodes.OutputNode(units)
             self.register_node(output_node)
 
-            for preprocess_id in self.preprocessing_ids:
-                self.graph.add_edge(preprocess_id, output_node.id)
+        # now work forward from the inputs
+        # Handles multiple inputs, assumes there is a preprocessing list defined for each
+        for index, input_id in enumerate(self.input_ids):
+            if preprocessing_layers is not None:
+                # create preprocessing nodes for each input
+                preprocess_node = basic_nodes.PreprocessingNode(preprocessing_layers[index], index)
+                self.register_node(preprocess_node)
+                # connect this preprocessing node to the relevant input node
+                self.graph.add_edge(input_id, preprocess_node.id)
 
-    def insert_node(self, new_node: tensor_node.TensorNode, position: int):
+            if initial_nodes is not None:
+                initial_node_stack = initial_nodes[index]
+                for initial_node in initial_node_stack:
+                    initial_node.is_initial_node = True
+                    self.register_node(initial_node, label_override="InitialNode")
+                    parent_id = input_id
+                    successors = self.get_successor_chain_ids(input_id)
+                    if len(successors) > 0:
+                        # already has preprocessing node(s)
+                        parent_id = successors[-1]
+                    self.graph.add_edge(parent_id, initial_node.id)
+
+            # make the final connection to the outputs
+            for output_id in self.output_ids:
+                parent_id = input_id
+                successors = self.get_successor_chain_ids(input_id)
+                if len(successors) > 0:
+                    parent_id = successors[-1]
+                    # mark node as final node in preprocessing/initial chain
+                    self.all_nodes[parent_id].is_end_initial_chain = True
+                self.graph.add_edge(parent_id, output_id)
+
+        # deal with multiple inputs being hooked into an output
+        for output_id in self.output_ids:
+            parents = get_parents(self, self.all_nodes[output_id])
+            if len(parents) > 1:
+                multi_to_single = evo_config.master_config.config["multiple_to_single"]
+                selection = random.choice(multi_to_single)
+                reducing_node = node_utils.create(selection)
+                self.register_node(reducing_node)
+
+                for parent in parents:
+                    while self.graph.has_edge(parent.id, output_id):
+                        self.graph.remove_edge(parent.id, output_id)
+                    self.graph.add_edge(parent.id, reducing_node.id)
+                self.graph.add_edge(reducing_node.id, output_id)
+
+    def insert_node_before(self, new_node: tensor_node.TensorNode, existing_node_id=None,
+                           parent_id=None, integrity_check=False):
         """inserts node before the given position.
         Positions refer to the index in the "non_input_nodes" list,
         which is kept in no particular order
         Args:
-            new_node: node to be inserted
-            position: position to insert node before
+
+            :param new_node: node to be inserted
+            :param parent_id: id of parent if explicitly given
+            :param integrity_check: True if this request made by an integrity check
+            :param existing_node_id: id of the node to insert before
+            (assuming random placement is false)
         """
 
         nodes = self.get_valid_insert_positions()
-        if position > (len(nodes) - 1):
-            raise ValueError("Invalid request to insert node: Length = " +
-                             str(len(nodes)) + " position given as: " + str(position))
 
-        child_node = list(nodes.values())[position]  # node at position becomes child
+        # check if a specific location to insert before was given to us,
+        # otherwise choose a location at random
+        if existing_node_id is not None:
+            child_node = nodes[existing_node_id]
+        else:
+            child_node = random.choice(list(nodes.values()))
 
-        # valid insert positions only have a single parent
-        parent = get_parents(self, child_node)[0]
+        # gets a list of direct successor nodes
+        parents = get_parents(self, child_node)
+        if parent_id is not None:
+            # we were provided with a specific parent ID. Nodes can have multiple parent,
+            # and sometimes it is important to specify exactly where the inserted node is going
+            parent = [node for node in parents if node.id == parent_id][0]
+        else:
+            # no explicit parent id given,
+            # so pick a parent at random (could be there is only one parent)
+            parent = random.choice(parents)  # could be multiple parents
 
-        self.register_node(new_node)
+        if integrity_check:
+            # this insertion request came from an integrity check,
+            # so we need to ensure that all connections between the parent
+            # and child get a copy of this node inserted. The insertion
+            # of this node between identified parent and child nodes is vital
+            # to this network's functionality.
 
-        while self.graph.has_edge(parent.id, child_node.id):
-            # remove all edges between parent and child
+            while self.graph.has_edge(parent.id, child_node.id):
+                # remove an edge between parent and child
+                self.graph.remove_edge(parent.id, child_node.id)
+                # copy the node so that each branch has its own version
+                new_node_copy = new_node.clone()
+                # register new node to be inserted
+                self.register_node(new_node_copy)
+                # add a new edge between parent and new node
+                self.graph.add_edge(parent.id, new_node_copy.id)
+                # add new edge between new node and child
+                self.graph.add_edge(new_node_copy.id, child_node.id)
+        else:
+            # request has not come from an integrity check,
+            # so just remove one of the (possibly) multiple edges between parent and child
+            # remove an edge between parent and child.
+            # This is just a standard mutation request,
+            # not a vital node inserted to ensure the function of the network.
             self.graph.remove_edge(parent.id, child_node.id)
-
-        # add a new edge between parent and new node
-        self.graph.add_edge(parent.id, new_node.id)
-        # add new edge between new node and child
-        self.graph.add_edge(new_node.id, child_node.id)
+            # register new node to be inserted
+            self.register_node(new_node)
+            # add a new edge between parent and new node
+            self.graph.add_edge(parent.id, new_node.id)
+            # add new edge between new node and child
+            self.graph.add_edge(new_node.id, child_node.id)
 
         if new_node.is_branch_termination:
+            # get ids of all predecessors recursively back to input node
             all_parents_ids = self.get_parent_chain_ids(new_node)
+
+            if (len(self.preprocessing_ids) > 0) or (len(self.initial_ids) > 0):
+                # this network has either preprocessing or initial nodes associated with it
+                # the input and initial/pre nodes shouldn't be considered valid
+                # candidates for a branch, except for the final one
+                removal_list = self.input_ids + self.initial_ids + self.preprocessing_ids
+                removal_list = [x for x in removal_list if not self.all_nodes[x].is_end_initial_chain]
+                all_parents_ids = [x for x in all_parents_ids if x not in removal_list]
+
             branch_origin = random.choice(all_parents_ids)
             self.graph.add_edge(branch_origin, new_node.id)
 
@@ -187,14 +266,21 @@ class TensorNetwork:
                 for child in children:
                     self.graph.add_edge(parent.id, child.id)
 
-    def register_node(self, node: tensor_node.TensorNode):
+    def register_node(self, node: tensor_node.TensorNode, label_override=None):
         """
         registers a node with the network. Adds it to the graph which holds the
         network topology. Also adds it to the main dict of nodes
+        :param label_override: overrides the default logic which
+        controls which list of ids the node gets added to
         :param node: node to register
         """
         self.all_nodes[node.id] = node
-        label = node.get_label()
+
+        if label_override is None:
+            label = node.get_label()
+        else:
+            label = label_override
+
         self.graph.add_node(node.id, label=label)
 
         if label == "InputNode":
@@ -203,6 +289,8 @@ class TensorNetwork:
             self.output_ids.append(node.id)
         elif label == "PreprocessingNode":
             self.preprocessing_ids.append(node.id)
+        elif label == "InitialNode":
+            self.initial_ids.append(node.id)
 
     # def replace_node(self, replacement_node: tensor_node.TensorNode,
     #                  position=None, existing_node_id=None):
@@ -219,13 +307,6 @@ class TensorNetwork:
     #     self.graph.remove_node()
     #     nx.relabel_nodes(self.graph, {old_node.id: replacement_node.id}, copy=False)
     #     self.graph.nodes[replacement_node.id]['label'] = replacement_node.get_label()
-
-    def load_preprocessing_layers(self, preprocessing_layers: list):
-        if len(self.preprocessing_ids) == 0:
-            return
-
-        for node in self.get_preprocessing_nodes().values():
-            node.preprocessing_layers = preprocessing_layers
 
     def remove_chain(self, id_chain: list, heal=True, replace=False, new_chain_nodes: list = None):
         """
@@ -264,8 +345,8 @@ class TensorNetwork:
     def get_successor_chain_ids(self, start_id: int) -> list:
         """
         Gets the ids of all nodes that are successors of the start_id.
-        Recursively gets them all the way back
-        to the input node
+        Recursively gets them all the way to the output node or a branch, whichever comes first
+
         Args:
             start_id: node to start from
         """
@@ -276,9 +357,8 @@ class TensorNetwork:
             successors = list(self.graph.successors(current_node_id))
             if len(successors) != 1:
                 break
-            node_ids.append(current_node_id)
             current_node_id = successors[0]
-
+            node_ids.append(current_node_id)
         return node_ids
 
     def mutate_node(self, position: int):
@@ -295,35 +375,6 @@ class TensorNetwork:
         node_to_mutate = list(nodes.values())[position]
         node_to_mutate.mutate()
 
-    # def set_weights(self, model_data: list[tuple]):
-    #     """
-    #     Stores model weights into the genome
-    #     :param model_data: list of tuples, each tuple contains (layer_name, layer_weights)
-    #     """
-    #
-    #     nodes_can_cache = self.get_nodes_can_cache()
-    #     for node in nodes_can_cache.values():
-    #         if node.name is None:
-    #             raise AttributeError(f"Nodes that can cache weights should not have None for their name attribute. "
-    #                                  f"Check that name is being set correctly in the node. "
-    #                                  f"Got node: {str(node)}")
-    #
-    #         for layer_tuple in model_data:
-    #             layer_name, layer_weights = layer_tuple
-    #             if layer_name is None or layer_weights is None:
-    #                 raise AttributeError(f"layer names and weights can't be None type. "
-    #                                      f"Check that model is compiled correctly."
-    #                                      f"Got {layer_name} with weights {str(layer_weights)}")
-    #
-    #             if len(layer_weights) == 0:
-    #                 # this layer has no weights, so it should be removed from consideration
-    #                 continue  # move on to next layer
-    #
-    #             # found a match between model layer and node
-    #             if layer_name == node.name:
-    #                 node.weights = layer_weights
-    #                 break  # node weights are set, break to next node (breaks out of the layer loop)
-
     def set_weights(self, model: tf.keras.Model):
         """
         Stores model weights into the genome
@@ -333,6 +384,7 @@ class TensorNetwork:
         nodes_can_cache = self.get_nodes_can_cache()
         for node in nodes_can_cache.values():
             if node.name is None:
+                # pylint: disable=C0301
                 raise AttributeError(f"Nodes that can cache weights should not have None for their name attribute. "
                                      f"Check that name is being set correctly in the node. "
                                      f"Got node: {str(node)}")
@@ -366,6 +418,7 @@ class TensorNetwork:
                 # loop through the nodes which could match this layer
                 for node in nodes_can_cache.values():
                     if node.name is None:
+                        # pylint: disable=C0301
                         raise AttributeError(
                             f"Nodes that can cache weights should not have None for their name attribute. "
                             f"Check that name is being set correctly in the node. "
@@ -376,6 +429,7 @@ class TensorNetwork:
                         if node.weights is not None:
                             # node is a match, and it has weights stored
                             # check that lengths match
+                            # pylint: disable=C0301
                             if len(node.weights) != len(layer.weights):
                                 raise ValueError(f"Can't set layer weights because node weights have incorrect length."
                                                  f"Node: {node.label}, weights len: {len(node.weights)}."
@@ -384,13 +438,15 @@ class TensorNetwork:
                             shapes_okay = True
                             for i in range(len(node.weights)):
                                 # verify the shapes still make sense
-                                # it's possible weight shapes have changed due to crossover or mutation
+                                # it's possible weight shapes have changed
+                                # due to crossover or mutation
                                 if node.weights[i].shape != layer.weights[i].shape:
                                     shapes_okay = False
                                     break  # no need to check any more shapes
 
                             if shapes_okay:
-                                # everything checked out, set the layer weights from the node weights
+                                # everything checked out,
+                                # set the layer weights from the node weights
                                 layer.set_weights(node.weights)
 
     def build_model(self) -> tf.keras.Model:
@@ -398,6 +454,7 @@ class TensorNetwork:
         Builds a model from this network
         :return: NN model
         """
+        self._check_integrity()
         inputs = self.all_nodes[self.input_ids[0]](self.all_nodes, self.graph)
         outputs = self.all_nodes[self.output_ids[0]](self.all_nodes, self.graph)
 
@@ -424,21 +481,24 @@ class TensorNetwork:
         :return: dict of all nodes that are not inputs or preprocessing
         """
         return {k: v for (k, v) in self.all_nodes.items() if (k not in self.input_ids)
-                and (k not in self.preprocessing_ids)}
+                and (k not in self.preprocessing_ids)
+                and (k not in self.initial_ids)}
 
     def get_preprocessing_nodes(self) -> dict:
         """Returns preprocessing nodes as a dict"""
 
-        return {k: v for (k, v) in self.all_nodes.items() if (k in self.preprocessing_ids)}
+        return {k: v for (k, v) in self.all_nodes.items() if k in self.preprocessing_ids}
 
     def get_middle_nodes(self) -> dict:
         """
 
         :return: dict of all nodes that are neither input nor outputs, nor preprocessing
         """
-        return {k: v for (k, v) in self.all_nodes.items()
-                if (k not in self.input_ids) and (k not in self.output_ids)
-                and (k not in self.preprocessing_ids)}
+        debug = {k: v for (k, v) in self.all_nodes.items()
+                 if (k not in self.input_ids) and (k not in self.output_ids)
+                 and (k not in self.preprocessing_ids)
+                 and (k not in self.initial_ids)}
+        return debug
 
     def get_mutatable_nodes(self) -> dict:
         """
@@ -455,15 +515,15 @@ class TensorNetwork:
         return {k: v for (k, v) in self.all_nodes.items() if
                 (len(list(self.graph.predecessors(k))) == 1) and
                 (len(list(self.graph.successors(k))) == 1)
-                and (k not in self.preprocessing_ids)}
+                and (k not in self.preprocessing_ids)
+                and (k not in self.initial_ids)}
 
     def get_valid_insert_positions(self) -> dict:
         """
 
         :return: dict of nodes which it would be valid to insert a node before.
         """
-        return {k: v for (k, v) in self.get_not_input_nodes().items() if
-                (len(list(self.graph.predecessors(k))) == 1)}
+        return {k: v for (k, v) in self.get_not_input_nodes().items()}
 
     def get_nodes_can_cache(self) -> dict:
         """
@@ -585,13 +645,42 @@ class TensorNetwork:
             tensor_net = TensorNetwork.deserialize(tn_dict)
             return tensor_net
 
+    def _check_integrity(self):
+        """Walks the network and checks if any nodes are outputting variable
+        length to a node which only accepts fixed length input"""
+
+        old_all_nodes = copy.deepcopy(self.all_nodes)
+
+        for node in old_all_nodes.values():
+            # get this node's children
+            children = self.get_children(node)
+            for child in children:
+                # check if this node outputs variable length
+                if node.variable_output_size:
+                    # check if children accept variable length input
+                    if not child.accepts_variable_length_input:
+                        # this is a problem, need to provide this child with fixed length input
+                        converters = evo_config.master_config.config["variable_to_fixed"]
+                        conversion_node_type = random.choice(converters)
+                        conversion_node = node_utils.create(conversion_node_type)
+                        conversion_node.set_variable_input(True)
+                        self.insert_node_before(conversion_node, existing_node_id=child.id,
+                                                parent_id=node.id, integrity_check=True)
+                    else:
+                        # child accepts variable length input, but make sure the flag is set
+                        child.set_variable_input(True)
+                else:
+                    # this node does not have variable output size,
+                    # make certain the flag for child node is updated
+                    child.set_variable_input(False)
+
 
 def get_parents(tensor_net: TensorNetwork, node: tensor_node.TensorNode) -> list:
     """
-    Gets a nodes parents
+    Gets a node's parents
     :param tensor_net: the tensor network the node i in
     :param node: the node to get parents for
-    :return: a list of the immediate predecessors of the given node
+    :return: a list of (nodes) the immediate predecessors of the given node
     """
     parents_ids = tensor_net.graph.predecessors(node.id)  # iterator
     parents = []

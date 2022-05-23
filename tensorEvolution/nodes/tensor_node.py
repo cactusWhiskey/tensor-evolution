@@ -2,9 +2,9 @@
 import copy
 import itertools
 from abc import ABC, abstractmethod
+
 from keras.engine.keras_tensor import KerasTensor
 from networkx import MultiDiGraph
-import tensorflow as tf
 
 
 class TensorNode(ABC):
@@ -23,6 +23,11 @@ class TensorNode(ABC):
         self.name = None
         self.keras_tensor_input_name = None
         self.required_num_weights = 2
+        self.variable_output_size = False
+        self.accepts_variable_length_input = False
+        self.has_variable_length_input = False
+        self.is_initial_node = False
+        self.is_end_initial_chain = False
 
     def serialize(self) -> dict:
         """Converts this class to serial form
@@ -129,6 +134,19 @@ class TensorNode(ABC):
         """Implement in subclasses if required. A node must be able to handle input of any shape."""
         return layers_so_far
 
+    def set_variable_input(self, is_variable_length: bool):
+        """Override in subclasses as required. If the input to this node is of variable length,
+         should the output be flagged as also being variable length?
+
+         Default behavior is to set variable length output flag as true
+         :param is_variable_length: is the input to this node of variable shape?"""
+
+        self.has_variable_length_input = is_variable_length
+        if is_variable_length:
+            self.variable_output_size = True
+        else:
+            self.variable_output_size = False
+
     @staticmethod
     @abstractmethod
     def create_random():
@@ -145,11 +163,19 @@ class TensorNode(ABC):
         label = label.split('\'')[0]
         return label
 
-    @abstractmethod
     def clone(self):
+        """Deal with copying over the state of the cloned node"""
+        new_node = self._clone()
+        node_id = new_node.id
+        new_node.__dict__ = copy.deepcopy(self.__dict__)
+        new_node.id = node_id
+        return new_node
+
+    @abstractmethod
+    def _clone(self):
         """Subclasses must implement a clone method which returns
-        a deep copy of the given node"""
-        raise NotImplementedError
+                a new copy of the given node"""
+        raise NotImplementedError()
 
     def __str__(self):
         return f"Node ID: {self.id}, Label: {self.label}"

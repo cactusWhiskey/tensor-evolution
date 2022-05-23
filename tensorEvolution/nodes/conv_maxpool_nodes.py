@@ -1,6 +1,6 @@
 """Module implementing Conv2D, MaxPool2D, Conv3D, MaxPool3D"""
-import copy
 import random
+
 import tensorflow as tf
 from keras.engine.keras_tensor import KerasTensor
 
@@ -22,10 +22,10 @@ class Conv2dNode(TensorNode):
         self.node_allows_cache_training = True
         self.kernel_regularizer = evo_config.master_config.random_regularizer()
 
-    def clone(self):
+    def _clone(self):
         """Creates a new node with the same parameters as this node"""
         clone = Conv2dNode(self.filters, self.kernel_size, self.padding)
-        clone.weights = copy.deepcopy(self.weights)
+        # clone.weights = copy.deepcopy(self.weights)
         return clone
 
     def deserialize_cleanup(self):
@@ -79,7 +79,7 @@ class MaxPool2DNode(TensorNode):
         self.padding = padding
         self.can_mutate = True
 
-    def clone(self):
+    def _clone(self):
         """Copies this node"""
         return MaxPool2DNode(self.pool_size, self.padding)
 
@@ -124,10 +124,10 @@ class Conv3dNode(TensorNode):
         self.node_allows_cache_training = True
         self.kernel_regularizer = evo_config.master_config.random_regularizer()
 
-    def clone(self):
+    def _clone(self):
         """Creates a new node with the same parameters as this node"""
         clone = Conv3dNode(self.filters, self.kernel_size, self.padding)
-        clone.weights = copy.deepcopy(self.weights)
+        # clone.weights = copy.deepcopy(self.weights)
         return clone
 
     def deserialize_cleanup(self):
@@ -181,7 +181,7 @@ class MaxPool3DNode(TensorNode):
         self.padding = padding
         self.can_mutate = True
 
-    def clone(self):
+    def _clone(self):
         """Copies this node"""
         return MaxPool3DNode(self.pool_size, self.padding)
 
@@ -215,9 +215,9 @@ class MaxPool3DNode(TensorNode):
 
 def _fix_kernel(reshaped_input: KerasTensor, kernel: tuple) -> tuple:
     new_kernel = ()
-    for i in range(len(kernel)):
-        size = kernel[i]
-        while reshaped_input.shape[i + 1] < size:
+    for index, _ in enumerate(kernel):
+        size = kernel[index]
+        while reshaped_input.shape[index + 1] < size:
             size -= 1
         new_kernel += (size,)
     return new_kernel

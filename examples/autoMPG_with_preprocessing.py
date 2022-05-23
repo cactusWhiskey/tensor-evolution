@@ -74,38 +74,49 @@ def main():
     normalizer = tf.keras.layers.Normalization(axis=-1)
     normalizer.adapt(np.array(train_features))
 
-    prelayers = []
-    prelayers.append(normalizer)
+    # build a stack of preprocessing layers
+    # (in this case it's just a single layer in the stack)
+    prelayer_stack = [normalizer]
 
     #########################################################
     # end of tensorflow tutorial, beginning of evolution example
 
+    # build custom config
     custom_config = {}
     custom_config['input_shapes'] = [[9]]
     custom_config['num_outputs'] = [1]
-    custom_config['pop_size'] = 200
+    custom_config['pop_size'] = 50
     custom_config['remote'] = True
     custom_config['loss'] = 'MeanAbsoluteError'
     custom_config['max_fit_epochs'] = 20
     custom_config['metrics'] = ['mean_absolute_error']
-    custom_config['direction'] = 'min'
     custom_config['remote_actors'] = 5
+    custom_config['direction'] = 'min'
 
+    # set the custom config
     evo_config.master_config.setup_user_config(custom_config)
 
+    # build data tuple
     data = train_features, train_labels, test_features, test_labels
+    # create evolution worker
     worker = tensor_evolution.EvolutionWorker()
 
-    worker.setup_preprocessing(prelayers)
+    # set the preprocssing layers as a list of lists
+    # (because intheory we could have multiple inputs, each with a
+    # list of their own preprocessing layers)
+    worker.setup_preprocessing([prelayer_stack])
+
+    # run the evolution
     worker.evolve(data=data)
 
     best = worker.get_best_individual()
+    print("\n" + str(best[0]))
     tensor_net = best[1]
     model = tensor_net.build_model()
     model.compile(loss=worker.master_config.loss, optimizer=worker.master_config.opt,
                   metrics=worker.master_config.config['metrics'])
 
-    model.fit(train_features, train_labels, epochs=100)
+    model.fit(train_features, train_labels, epochs=20)
     model.evaluate(test_features, test_labels)
 
 

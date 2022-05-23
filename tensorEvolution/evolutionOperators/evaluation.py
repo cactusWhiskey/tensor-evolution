@@ -1,4 +1,5 @@
 """Evaluation of an individual in the population"""
+
 import ray
 
 from tensorEvolution import util, evo_config

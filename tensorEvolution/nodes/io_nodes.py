@@ -2,18 +2,32 @@
 import tensorflow as tf
 from keras.engine.keras_tensor import KerasTensor
 
+from tensorEvolution import evo_config
 from tensorEvolution.nodes.tensor_node import TensorNode
 
 
 class InputNode(TensorNode):
     """Node which represents nn inputs in the genome"""
 
-    def __init__(self, input_shape: tuple):
+    def __init__(self, input_shape):
         super().__init__()
-        self.input_shape = input_shape
-        self.is_branch_root = True
+        for index, dim in enumerate(list(input_shape)):
+            # When the population is first created from yaml config,
+            # it's possible we have a "None" string
+            if dim == "None":
+                input_shape[index] = None
 
-    def clone(self):
+        self.input_shape = tuple(input_shape)
+        self.is_branch_root = True
+        self.dtype = evo_config.master_config.input_dtype
+
+        # have to do this check here (instead of in the loop above) to catch
+        # the cases where an input node is crated via cloning or deserialization
+        for dim in self.input_shape:
+            if dim is None:
+                self.variable_output_size = True
+
+    def _clone(self):
         """
         Clones this input node
         :return: a new input node
@@ -23,9 +37,10 @@ class InputNode(TensorNode):
     def _build(self, layers_so_far):
         """Note that by default, the build method sends layers so far as a parameter,
         but for an input node, it's just equal to None.
-        We redefine it below, since it's a convenient variable name to use in intermediate steps. """
+        We redefine it below, since it's a convenient variable
+        name to use in intermediate steps. """
 
-        layers_so_far = tf.keras.Input(shape=self.input_shape)
+        layers_so_far = tf.keras.Input(shape=self.input_shape, dtype=self.dtype)
         return layers_so_far
 
     def deserialize_cleanup(self):
@@ -52,10 +67,10 @@ class OutputNode(TensorNode):
         self.num_outputs = num_outputs
         self.node_allows_cache_training = True
 
-    def clone(self):
+    def _clone(self):
         """Copies this node"""
         clone = OutputNode(self.num_outputs)
-        clone.weights = self.weights
+        # clone.weights = self.weights
         return clone
 
     def _build(self, layers_so_far) -> KerasTensor:

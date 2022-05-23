@@ -28,19 +28,22 @@ class EvoConfig:
         self.loss = None
         self.opt = None
         self.callbacks = None
+        self.input_dtype = None
+
+    def __str__(self):
+        return str(self.config)
 
     def _update_config(self, config: dict):
         for key, value in config.items():
             self.config[key] = value
             if key == 'opt':
                 self.opt = self.setup_optimizer(self.config)
-
             elif key == 'loss':
                 self.loss = self.setup_loss(self.config)
-
             elif key == 'early_stopping':
                 self.callbacks = self.setup_callbacks(self.config)
-
+            elif key == 'input_dtype':
+                self._sort_out_dtype()
             else:
                 pass
 
@@ -78,6 +81,7 @@ class EvoConfig:
         self.opt = self.setup_optimizer(self.config)
         self.loss = self.setup_loss(self.config)
         self.callbacks = self.setup_callbacks(self.config)
+        self._sort_out_dtype()
 
     @staticmethod
     def load_config(file_name: str) -> dict:
@@ -129,6 +133,8 @@ class EvoConfig:
                 configured_loss = tf.keras.losses.MeanSquaredError()
             elif loss_str == 'MeanAbsoluteError':
                 configured_loss = tf.keras.losses.MeanAbsoluteError()
+            elif loss_str == 'BinaryCrossentropy':
+                configured_loss = tf.keras.losses.BinaryCrossentropy(from_logits=True)
             else:
                 raise ValueError("Unsupported loss function")
         else:
@@ -207,6 +213,7 @@ class EvoConfig:
             learning_rate = random.choice(self.config['learning_rates'])
             learning_rate *= random.randint(1, 9)
             self.config['learning_rate'] = learning_rate
+            self.opt = self.setup_optimizer(self.config)
 
         elif param_to_mutate == 'opt':
             pass
@@ -237,6 +244,7 @@ class EvoConfig:
 
     @staticmethod
     def build_regularizer(regularizer_list: list) -> tf.keras.regularizers.Regularizer:
+        """Builds regularizer"""
         regularizer = regularizer_list[0]
         l1 = regularizer_list[1]
         l2 = regularizer_list[2]
@@ -251,6 +259,15 @@ class EvoConfig:
             return tf.keras.regularizers.L2(l2=l2)
         else:
             raise AttributeError("Unsupported kernel regularizer: " + str(regularizer))
+
+    def _sort_out_dtype(self):
+        dtype = self.config["input_dtype"]
+        if dtype == "None":
+            self.input_dtype = None
+        elif dtype == "tf.string":
+            self.input_dtype = tf.string
+        else:
+            raise ValueError("Unsupported input dtype")
 
 
 def cross_over(some_hp: EvoConfig, other_hp: EvoConfig):

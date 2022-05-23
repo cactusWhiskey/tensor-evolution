@@ -33,7 +33,7 @@ class EvolutionWorker:
         self._setup_log()
         self.master_config = evo_config.master_config
         self.preprocessing_layers = None
-        self.preprocessing_layers_length = 0
+        self.initial_nodes = None
         self._setup_creator()
 
     def update_master_config(self, config):
@@ -57,10 +57,13 @@ class EvolutionWorker:
         self.toolbox.register("mutate_delete", mutation.mutate_delete)
         self.toolbox.register("mutate_mutate", mutation.mutate_mutate)
         self.toolbox.register("mutate_hyper", mutation.mutate_hyper)
+        # self.toolbox.register("select", tools.selTournament,
+        #                       tournsize=7)
         self.toolbox.register("select", selection.double_tournament,
                               fitness_t_size=self.master_config.config['fitness_t_size'],
                               prob_sel_smallest=self.master_config.config['prob_sel_least_complex'],
-                              do_fitness_first=True)
+                              do_fitness_first=True,
+                              complexity_t_size=self.master_config.config['complexity_t_size'])
 
     def _setup_stats(self):
         self.stats = tools.Statistics(key=lambda ind: ind.fitness.values)
@@ -71,7 +74,7 @@ class EvolutionWorker:
 
     def _setup_log(self):
         self.logbook = tools.Logbook()
-        self.logbook.header = "gen", "avg", "max", "min"
+        self.logbook.header = "gen", "avg", "max", "min", "max_size", "avg_size"
 
     def plot(self):
         """Basic method for plotting fitness at each generation"""
@@ -88,7 +91,8 @@ class EvolutionWorker:
         individual_config = self.master_config.clone()
 
         tensor_net = tensor_network.TensorNetwork(input_shapes, num_outputs,
-                                                  preprocessing_layers=self.preprocessing_layers)
+                                                  preprocessing_layers=self.preprocessing_layers,
+                                                  initial_nodes=self.initial_nodes)
         ind.append(individual_config)
         ind.append(tensor_net)
         return ind
@@ -175,7 +179,7 @@ class EvolutionWorker:
         # pass the index with the individual to the evaluation function
         # the index just gets passed back with the results so we can
         # identify which result goes with which individual later
-        indexes_with_inds = [(index, ind) for index, ind in enumerate(individuals)]
+        indexes_with_inds = list(enumerate(individuals))
 
         # check if remote
         remote = self.master_config.config['remote']
@@ -208,11 +212,11 @@ class EvolutionWorker:
 
     def _gen_bookkeeping(self, gen):
         self.record = self.stats.compile(self.pop)
+        biggest, avg = self._get_individual_size_stats()
+        self.record['max_size'] = biggest
+        self.record['avg_size'] = avg
         self.logbook.record(gen=gen, **self.record)
-        print('\n')
-        print(self.logbook.header)
         print(self.logbook.stream)
-        print('\n')
 
     def _evolve(self):
         # pylint: disable=E1101
@@ -234,6 +238,7 @@ class EvolutionWorker:
 
     def _main_evolution_loop(self):
         for gen in range(self.master_config.config['ngen']):
+            self._pop_integrity_check()
             # Select the next generation individuals
             offspring = self.toolbox.select(self.pop, len(self.pop))
 
@@ -256,9 +261,6 @@ class EvolutionWorker:
 
             # save data to disk
             self._save_every(gen)
-
-            print(f"Largest: {self._get_biggest_individual_size()}, "
-                  f"Avg: {self._get_average_individual_size()}")
 
     def _post_evolution_tasks(self):
         print("-- End of (successful) evolution --")
@@ -309,9 +311,7 @@ class EvolutionWorker:
         """Rebuild object from a dict"""
         new_worker = EvolutionWorker()
         new_worker.master_config = evo_config.EvoConfig.deserialize(serial_dict['master_config'])
-        new_worker._load_preprocessing_layers()
-        new_worker.pop = EvolutionWorker.deserialize_pop(serial_dict['pop'],
-                                                         new_worker.preprocessing_layers)
+        new_worker.pop = EvolutionWorker.deserialize_pop(serial_dict['pop'])
         return new_worker
 
     def serialize_pop(self) -> list:
@@ -331,88 +331,73 @@ class EvolutionWorker:
         return serial_individual
 
     @staticmethod
-    def deserialize_individual(serial_individual: list, preprocessing_layers=None):
+    def deserialize_individual(serial_individual: list):
         """Rebuilds an individual from serial form"""
         # pylint: disable=E1101
         new_ind = creator.Individual()
         individual_config = evo_config.EvoConfig.deserialize(serial_individual[0])
         tensor_net = tensor_network.TensorNetwork.deserialize(serial_individual[1])
-        if preprocessing_layers is not None:
-            tensor_net.load_preprocessing_layers(preprocessing_layers)
         new_ind.append(individual_config)
         new_ind.append(tensor_net)
         new_ind.fitness.values = tuple(serial_individual[2])
         return new_ind
 
     @staticmethod
-    def deserialize_pop(serial_pop: list, preprocessing_layers=None) -> list:
+    def deserialize_pop(serial_pop: list) -> list:
         """Rebuilds population from serial form"""
         new_pop = []
         for serial_individual in serial_pop:
-            new_pop.append(EvolutionWorker.deserialize_individual(serial_individual,
-                                                                  preprocessing_layers))
+            new_pop.append(EvolutionWorker.deserialize_individual(serial_individual))
         return new_pop
 
-    def setup_preprocessing(self, preprocessing_layers: list):
+    def setup_preprocessing(self, preprocessing_layers: list[list]):
         """Use this method to set preprocessing layers on the input
         Args:
-            preprocessing_layers: needs to be a list of lists,or the None value type.
-            Each position in the outermost list is a set of preprocessing layers to be
-            applied to genomes. The None value represents no preprocessing.
-            When a new individual of the population is created, a set of preprocessing
-            layers will be chosen randomly from the list (include None as a list member if
-            you want the option of no preprocessing).
+            preprocessing_layers: needs to be a list of lists of layers.
             The layers need to be ready to go (so run any adapting beforehand)"""
         self.preprocessing_layers = preprocessing_layers
-        self.preprocessing_layers_length = len(preprocessing_layers)
-        self._save_preprocessing_layers()
 
     def _save_preprocessing_layers(self):
         if self.preprocessing_layers is None:
             return
 
-        input_shapes = self.master_config.config['input_shapes']
-        num_outputs = self.master_config.config['num_outputs']
+        for index, layer_stack in enumerate(self.preprocessing_layers):
+            model = tf.keras.Sequential()
+            for pre_layer in layer_stack:
+                model.add(pre_layer)
+            preprocessing_save_path = evo_config.\
+                master_config.config['preprocessing_save_path'][index]
+            model.save(preprocessing_save_path)
 
-        inputs = tf.keras.Input(shape=tuple(input_shapes[0]))
+    # def _load_preprocessing_layers(self):
+    #     self.preprocessing_layers = []
+    #     preprocessing_save_paths = evo_config.master_config.config['preprocessing_save_path']
+    #     for path in preprocessing_save_paths:
+    #         model = tf.keras.models.load_model(path)
+    #         prelayers = []
+    #         for layer in model.layers:
+    #             prelayers.append(layer)
+    #         self.preprocessing_layers.append(prelayers)
 
-        layers_so_far = inputs
-        for pre_layer in self.preprocessing_layers:
-            layers_so_far = pre_layer(layers_so_far)
-
-        outputs = tf.keras.layers.Dense(num_outputs[0])(layers_so_far)
-        model = tf.keras.Model(inputs, outputs)
-        preprocessing_save_path = evo_config.master_config.config['preprocessing_save_path']
-        model.save(preprocessing_save_path)
-
-    def _load_preprocessing_layers(self):
-        if self.preprocessing_layers_length == 0:
-            return
-
-        preprocessing_save_path = evo_config.master_config.config['preprocessing_save_path']
-        model = tf.keras.models.load_model(preprocessing_save_path)
-
-        prelayers = []
-        for i in range(1, (self.preprocessing_layers_length + 1)):
-            prelayers.append(model.layers[i])
-
-        self.preprocessing_layers = prelayers
-
-    def _get_biggest_individual_size(self):
-        """For debugging use, returns member of population with the most nodes.
+    def _get_individual_size_stats(self) -> tuple:
+        """For debugging use, returns info on individual size.
         Useful for checking if bloat control is working."""
         biggest = 0
-        for individual in self.pop:
-            tensor_net = individual[1]
-            size = len(tensor_net.get_middle_nodes())
-            biggest = max(biggest, size)
-        return biggest
-
-    def _get_average_individual_size(self):
         sum_sizes = 0
         for individual in self.pop:
             tensor_net = individual[1]
             size = len(tensor_net.get_middle_nodes())
+            biggest = max(biggest, size)
             sum_sizes += size
         avg = sum_sizes / len(self.pop)
-        return avg
+        return biggest, avg
+
+    def set_initial_nodes(self, nodes: list[list]):
+        """Add initial nodes to all networks
+        :param nodes: list of lists of initial nodes
+        """
+        self.initial_nodes = nodes
+
+    def _pop_integrity_check(self):
+        """Debug hook to check on the population"""
+        pass

@@ -13,10 +13,9 @@ def mutate_insert(individual: list):
     config = individual[0]
     tensor_net = individual[1]
 
-    position = random.randint(0, len(tensor_net.get_valid_insert_positions()) - 1)
     node_type = random.choice(config.config['valid_node_types'])
     node = node_utils.create(node_type)
-    tensor_net.insert_node(node, position)
+    tensor_net.insert_node_before(node)
     # noinspection PyRedundantParentheses
     return (individual,)
 

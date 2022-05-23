@@ -7,6 +7,7 @@ from keras.engine.keras_tensor import KerasTensor
 from networkx import MultiDiGraph
 
 from tensorEvolution import evo_config
+from tensorEvolution.nodes import node_utils
 from tensorEvolution.nodes.tensor_node import TensorNode
 
 
@@ -16,7 +17,7 @@ class FlattenNode(TensorNode):
     def _build(self, layers_so_far: KerasTensor):
         return tf.keras.layers.Flatten()(layers_so_far)
 
-    def clone(self):
+    def _clone(self):
         """Returns a new instance"""
         return FlattenNode()
 
@@ -33,23 +34,18 @@ class AdditionNode(TensorNode):
         super().__init__()
         self.is_branch_termination = True
 
-    def clone(self):
+    def _clone(self):
         """Builds a new addition node"""
         clone = AdditionNode()
-        clone.saved_layers = copy.deepcopy(self.saved_layers)
+        # clone.saved_layers = copy.deepcopy(self.saved_layers)
         return clone
 
     def _call_parents(self, all_nodes: dict, graph: MultiDiGraph):
         parents = self.get_parents(all_nodes, graph)
-        if len(parents) == 1:  # same parent hooked into both sides of the addition layer
-            return parents[0](all_nodes, graph)
-        elif len(parents) > 2:
-            raise ValueError("Too many parents: " + str(len(parents)))
-        return parents[0](all_nodes, graph), parents[1](all_nodes, graph)
+        return [parent(all_nodes, graph) for parent in parents]
 
-    def _build(self, layers_so_far: tuple) -> KerasTensor:
-        main_branch, adder_branch = layers_so_far
-        return tf.keras.layers.add([main_branch, adder_branch])
+    def _build(self, layers_so_far: list) -> KerasTensor:
+        return tf.keras.layers.Add()(layers_so_far)
 
     @staticmethod
     def create_random():
@@ -57,43 +53,24 @@ class AdditionNode(TensorNode):
         internal state to randomize"""
         return AdditionNode()
 
-    def fix_input(self, layers_so_far) -> tuple:
+    def fix_input(self, layers_so_far: list) -> list:
         """
         The inputs to the addition node can be tensors of any shape.
         This method adds flatten, dense, and reshape layers
         as required to force the two inputs to have
         identical shapes.
-        :param layers_so_far: either a tuple of the two
+        :param layers_so_far: either a list of the
         different layers feeding into this addition node,
         or possibly just a single input (because it's
         possible that a single parent node feeds into both inputs
         of this addition node).
-        :return: tuple of two tensors of identical shape
-        """
-        if isinstance(layers_so_far, tuple):
-            main_branch, adder_branch = layers_so_far
-        else:
-            return layers_so_far, layers_so_far
+        :return: list of (minimum of) two tensors of identical shape        """
 
-        if main_branch.shape[1:] != adder_branch.shape[1:]:
-            adder_branch = tf.keras.layers.Flatten()(adder_branch)
-            if main_branch.shape.rank == 2:  # dense shape
-                units = main_branch.shape[1]  # main_shape[0] will be None
-                adder_branch = tf.keras.layers.Dense(units)(adder_branch)
-            elif main_branch.shape.rank in (4, 5):  # Conv2D, 3D shapes
-                units = 1
-                for i in range(1, main_branch.shape.rank):
-                    units *= main_branch.shape[i]  # total length
-                adder_branch = tf.keras.layers.Dense(units)(adder_branch)
-                adder_branch = tf.keras.layers.Reshape(main_branch.shape[1:])(adder_branch)
-            else:
-                main_branch = tf.keras.layers.Flatten()(main_branch)
-                adder_branch = tf.keras.layers.Flatten()(adder_branch)
-                main_shape = main_branch.shape
-                units = main_shape[1]
-                adder_branch = tf.keras.layers.Dense(units)(adder_branch)
+        # if there is only one branch return it twice
+        if len(layers_so_far) == 1:
+            return [layers_so_far[0], layers_so_far[0]]
 
-        return main_branch, adder_branch
+        return node_utils.make_shapes_same(layers_so_far)
 
 
 class DenseNode(TensorNode):
@@ -107,11 +84,11 @@ class DenseNode(TensorNode):
         self.node_allows_cache_training = True
         self.kernel_regularizer = evo_config.master_config.random_regularizer()
 
-    def clone(self):
-        """Crates a new dense node with the same number of units and
+    def _clone(self):
+        """Creates a new dense node with the same number of units and
         the same activation as this node."""
         clone = DenseNode(self.num_units, self.activation)
-        clone.weights = copy.deepcopy(self.weights)
+        # clone.weights = copy.deepcopy(self.weights)
         return clone
 
     def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
@@ -136,7 +113,7 @@ class DenseNode(TensorNode):
 
     def mutate(self):
         """
-        Mutates this node's number of units
+        Mutates this node's number of units and regularizer
         :return:
         """
         random_power = random.randint(0, evo_config.master_config.config['dense_max_power_two'])
@@ -152,7 +129,7 @@ class ReluNode(TensorNode):
     def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
         return tf.keras.layers.ReLU()(layers_so_far)
 
-    def clone(self):
+    def _clone(self):
         """Crates new relu node"""
         return ReluNode()
 
@@ -168,7 +145,7 @@ class BatchNormNode(TensorNode):
     def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
         return tf.keras.layers.BatchNormalization()(layers_so_far)
 
-    def clone(self):
+    def _clone(self):
         """Creates and returns new batch norm node"""
         return BatchNormNode()
 
@@ -185,16 +162,17 @@ class DropoutNode(TensorNode):
         super().__init__()
         self.rate = random.uniform(0.0, 0.9)
         self.can_mutate = True
+        self.accepts_variable_length_input = True
 
     @staticmethod
     def create_random():
         """Creates and returns a new DropoutNode"""
         return DropoutNode()
 
-    def clone(self):
+    def _clone(self):
         """Creates a new DropoutNode and sets its rate equal to this node's rate"""
         new_node = DropoutNode()
-        new_node.rate = copy.copy(self.rate)
+        # new_node.rate = copy.copy(self.rate)
         return new_node
 
     def _build(self, layers_so_far) -> KerasTensor:
@@ -207,10 +185,10 @@ class DropoutNode(TensorNode):
 class PreprocessingNode(TensorNode):
     """Node which holds preprocessing layers"""
 
-    def __init__(self, preprocessing_layers):
+    def __init__(self, preprocessing_layers: list, save_index: int):
         super().__init__()
         self.preprocessing_layers = preprocessing_layers
-        self.num_pre_layers = len(preprocessing_layers)
+        self.save_index = save_index
 
     def _build(self, layers_so_far) -> KerasTensor:
         if self.preprocessing_layers is not None:
@@ -224,9 +202,9 @@ class PreprocessingNode(TensorNode):
         """Raises an error, it's not valid to randomly create this node"""
         raise NotImplementedError("Preprocessing Node can't be created randomly")
 
-    def clone(self):
+    def _clone(self):
         """Clones this node"""
-        return PreprocessingNode(self.preprocessing_layers)
+        return PreprocessingNode(self.preprocessing_layers, save_index=self.save_index)
 
     def _serialize(self) -> dict:
         preprocessing_layers = self.preprocessing_layers
@@ -236,11 +214,38 @@ class PreprocessingNode(TensorNode):
         return serial_dict
 
     def load_layers(self):
-        preprocessing_save_path = evo_config.master_config.config['preprocessing_save_path']
-        model = tf.keras.models.load_model(preprocessing_save_path)
+        """Load this node's preprocessing layers from file"""
+        preprocessing_save_paths = evo_config.master_config.config['preprocessing_save_path']
+        model = tf.keras.models.load_model(preprocessing_save_paths[self.save_index])
 
         prelayers = []
-        for i in range(1, (self.num_pre_layers + 1)):
-            prelayers.append(model.layers[i])
-
+        for layer in model.layers:
+            prelayers.append(layer)
         self.preprocessing_layers = prelayers
+
+    def deserialize_cleanup(self):
+        self.load_layers()
+
+
+class ConcatNode(TensorNode):
+    """Implements concat layer as a node"""
+
+    def _call_parents(self, all_nodes: dict, graph: MultiDiGraph):
+        parents = self.get_parents(all_nodes, graph)
+        return [parent(all_nodes, graph) for parent in parents]
+
+    def fix_input(self, layers_so_far: list) -> list:
+        if len(layers_so_far) == 1:
+            return layers_so_far
+        else:
+            return node_utils.make_shapes_same(layers_so_far)
+
+    def _build(self, layers_so_far: list) -> KerasTensor:
+        return tf.keras.layers.Concatenate()(layers_so_far)
+
+    @staticmethod
+    def create_random():
+        return ConcatNode()
+
+    def _clone(self):
+        return ConcatNode()

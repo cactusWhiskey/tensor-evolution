@@ -33,13 +33,15 @@ This list is currently expanding. So far:
 - Addition
 - BatchNorm
 - Flatten
-- LSTM (experimental)
+- LSTM
+- GlobalAvgPooling 1D
+- Embedding
+- Concat
 
 ## Installation
 
 
-At the moment you'll need to clone the source and then either edit one of the examples, or create a new python file 
-and import the *tensor_evolution* module. I am working on getting this project on pip. 
+```pip install tensor-evolution ```
 
 ## Usage
 
@@ -48,21 +50,16 @@ and import the *tensor_evolution* module. I am working on getting this project o
 ### Running an Evolution
 Start by importing the *tensor_evolution* module. This is the main driver for the evolution. 
 
-```
-import tensor_evolution
-```
+```import tensor_evolution```
 
 Next, prepare your data as a tuple of four objects, like so:
 
-```
-data = x_train, y_train, x_test, y_test
-```
+```data = x_train, y_train, x_test, y_test```
 
 Then create an evolution worker, and use that worker to drive the evolution:
-```
-worker = tensor_evolution.EvolutionWorker()
-worker.evolve(data=data)
-```
+
+```worker = tensor_evolution.EvolutionWorker()```
+```worker.evolve(data=data)```
 
 Please reference the end to end examples for full details.
 

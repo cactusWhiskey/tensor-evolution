@@ -3,11 +3,6 @@
 from tensorEvolution import tensor_evolution
 
 
-def main():
-    # create evolution worker
+def test_basic_setup():
     worker = tensor_evolution.EvolutionWorker()
     assert True
-
-
-if __name__ == "__main__":
-    main()

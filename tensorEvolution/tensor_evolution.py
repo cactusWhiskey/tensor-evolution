@@ -14,7 +14,6 @@ from tensorEvolution import evo_config
 from tensorEvolution import tensor_encoder
 from tensorEvolution import tensor_network
 from tensorEvolution.evolutionOperators import selection, crossover, mutation, evaluation
-from tensorEvolution.evolutionOperators.evaluation import RemoteEvoActor
 
 
 class EvolutionWorker:
@@ -118,17 +117,20 @@ class EvolutionWorker:
         # pylint: disable=E1101
 
         # configure the evaluation function based on remote vs local execution
-        if not self.master_config.config['remote']:
+        if self.master_config.config['remote_mode'] == "local":
             self.toolbox.register("evaluate", evaluation.evaluate, data=data)
         else:
             ray.init()
-            actors = []
-            for _ in range(self.master_config.config['remote_actors']):
-                actor = RemoteEvoActor.remote(data)
-                actors.append(actor)
+            # actors = []
+            # for _ in range(self.master_config.config['remote_actors']):
+            #     actor = RemoteEvoActor.remote(data)
+            #     actors.append(actor)
+            # self.pool = ActorPool(actors)
 
-            self.pool = ActorPool(actors)
-            self.toolbox.register("evaluate", evaluation.eval_remote)
+            # put the data into the ray object store
+            data_id = ray.put(data)
+            # self.toolbox.register("evaluate", evaluation.eval_remote)
+            self.toolbox.register("evaluate", evaluation.eval_ray_task.remote, data_id=data_id)
 
         # now start the evolution loop
         self._evolve()
@@ -179,36 +181,58 @@ class EvolutionWorker:
         # pass the index with the individual to the evaluation function
         # the index just gets passed back with the results so we can
         # identify which result goes with which individual later
-        indexes_with_inds = list(enumerate(individuals))
+
+        # create a tuple the contains each individual paired with its index
+        # this will enable us to retrieve the evaluation results in
+        # any order, and still know which fitness goes with
+        # which individual
+        # also convert each individual to a list for serialization
+        indexes_with_inds = [(index, list(ind)) for index, ind in enumerate(individuals)]
 
         # check if remote
-        remote = self.master_config.config['remote']
-        if remote:
+        remote_mode = self.master_config.config['remote_mode']
+
+        if remote_mode == "ray_remote":
             # use remote function
-            eval_results = list(self.pool.map_unordered(self.toolbox.evaluate, indexes_with_inds))
+            # eval_results = list(self.pool.map_unordered(self.toolbox.evaluate, indexes_with_inds))
+
+            # this is a list of reference ids, not the actual results
+            eval_results_ids = list(map(self.toolbox.evaluate, indexes_with_inds))
+            # need to get a result that is done
+            while len(eval_results_ids):
+                # get a done result id
+                done_id, eval_results_ids = ray.wait(eval_results_ids)
+                # process the result
+                result = ray.get(done_id[0])
+                self._process_evaluation_result(result, remote_mode, individuals)
         else:
             # use local function
             eval_results = list(map(self.toolbox.evaluate, indexes_with_inds))
+            # local evaluation
+            for result in eval_results:
+                self._process_evaluation_result(result, remote_mode, individuals)
 
-        for result in eval_results:
-            # fitness tuple is always in the zero position of the evaluation returned results
-            fitness = result[0]
-            # index is in the 2 position
-            index = result[2]
-            # get the individual this fitness result is for
-            this_individual = individuals[index]
-            # set the fitness
-            this_individual.fitness.values = fitness
-            if remote:
-                # remote execution has its own copies of the individuals it evaluated,
-                # so complexity and weight cache didn't get done on the local (master) copy of
-                # the individuals. Need to do that now.
+    @staticmethod
+    def _process_evaluation_result(result: tuple, remote_mode: str, individuals):
+        # fitness tuple is always in the zero position of the evaluation returned results
+        fitness = result[0]
+        # index is in the 2 position
+        index = result[2]
+        # get the individual this fitness result is for
+        this_individual = individuals[index]
+        # set the fitness
+        this_individual.fitness.values = fitness
 
-                # __dict__ from the remote individual is returned by the eval function at position 1
-                tensor_dict_from_remote = result[1]
-                tensor_net = this_individual[1]  # our local copy of this individual
-                # copy the updated state over
-                tensor_net.__dict__ = tensor_dict_from_remote
+        if remote_mode == "ray_remote":
+            # remote execution has its own copies of the individuals it evaluated,
+            # so complexity and weight cache didn't get done on the local (master) copy of
+            # the individuals. Need to do that now.
+
+            # __dict__ from the remote individual is returned by the eval function at position 1
+            tensor_dict_from_remote = result[1]
+            tensor_net = this_individual[1]  # our local copy of this individual
+            # copy the updated state over
+            tensor_net.__dict__ = tensor_dict_from_remote
 
     def _gen_bookkeeping(self, gen):
         self.record = self.stats.compile(self.pop)
@@ -234,7 +258,8 @@ class EvolutionWorker:
             self._save_preprocessing_layers()
 
         # compute initial fitness of population
-        self._evaluation_on_individuals(self.pop)
+        invalid_ind = [ind for ind in self.pop if not ind.fitness.valid]
+        self._evaluation_on_individuals(invalid_ind)
 
     def _main_evolution_loop(self):
         for gen in range(self.master_config.config['ngen']):
@@ -350,7 +375,7 @@ class EvolutionWorker:
             new_pop.append(EvolutionWorker.deserialize_individual(serial_individual))
         return new_pop
 
-    def setup_preprocessing(self, preprocessing_layers: list[list]):
+    def setup_preprocessing(self, preprocessing_layers: list):
         """Use this method to set preprocessing layers on the input
         Args:
             preprocessing_layers: needs to be a list of lists of layers.
@@ -365,7 +390,7 @@ class EvolutionWorker:
             model = tf.keras.Sequential()
             for pre_layer in layer_stack:
                 model.add(pre_layer)
-            preprocessing_save_path = evo_config.\
+            preprocessing_save_path = evo_config. \
                 master_config.config['preprocessing_save_path'][index]
             model.save(preprocessing_save_path)
 
@@ -392,7 +417,7 @@ class EvolutionWorker:
         avg = sum_sizes / len(self.pop)
         return biggest, avg
 
-    def set_initial_nodes(self, nodes: list[list]):
+    def set_initial_nodes(self, nodes: list):
         """Add initial nodes to all networks
         :param nodes: list of lists of initial nodes
         """

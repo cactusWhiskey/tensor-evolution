@@ -5,4 +5,4 @@ from tensorEvolution import tensor_evolution
 
 def test_basic_setup():
     worker = tensor_evolution.EvolutionWorker()
-    assert True
+    assert worker is not None

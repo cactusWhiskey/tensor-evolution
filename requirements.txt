@@ -1,5 +1,5 @@
 tensorflow~=2.9.1
-numpy~=1.21.6 # supports python 3.7
+numpy~=1.21.6
 setuptools~=62.3.2
 keras~=2.9.0
 sympy~=1.10

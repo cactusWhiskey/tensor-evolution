@@ -13,7 +13,9 @@ def main():
 
     best = worker.get_best_individual()
     tensor_net = best[1]
+    tensor_net.draw_graphviz_svg()
     model = tensor_net.build_model()
+    model.summary()
     model.compile(loss=worker.master_config.loss, optimizer=worker.master_config.opt,
                   metrics=worker.master_config.config['metrics'])
 

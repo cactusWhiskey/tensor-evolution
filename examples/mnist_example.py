@@ -37,6 +37,19 @@ def main():
     # evolve
     worker.evolve(data=data)
 
+    best = worker.get_best_individual()
+    tensor_net = best[1]
+    tensor_net.draw_graphviz_svg()
+    model = tensor_net.build_model()
+    model.summary()
+    model.compile(loss=worker.master_config.loss, optimizer=worker.master_config.opt,
+                  metrics=worker.master_config.config['metrics'])
+
+    model.fit(x_train, y_train, epochs=10)
+    model.evaluate(x_test, y_test)
+
+
+
 
 if __name__ == "__main__":
     main()

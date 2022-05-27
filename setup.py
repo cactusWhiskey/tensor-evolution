@@ -17,8 +17,8 @@ DESCRIPTION = 'Evolutionary algorithm for neural network structure'
 URL = 'https://github.com/cactusWhiskey/tensor-evolution'
 EMAIL = 'ricardo.fr.rivero@gmail.com'
 AUTHOR = 'Ricardo Rivero'
-REQUIRES_PYTHON = '>=3.7.0'
-VERSION = '0.1.3'
+REQUIRES_PYTHON = '>=3.9.0'
+VERSION = '0.1.4'
 
 # What packages are required for this module to be executed?
 REQUIRED = [

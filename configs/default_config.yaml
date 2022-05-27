@@ -18,10 +18,10 @@ direction: max #is fitness maximized or minimized. use "min" for minimized
 ####
 # Ray remote settings
 ####
-remote: True #run using Ray remote actors
-remote_actors: 3 #number of actors to use for remote execution
-remote_actor_cpus: 1
-remote_actor_gpus: 0
+remote_mode: "ray_remote" #"local"
+ray_cpus_task: 2
+ray_gpus_task: 0
+ray_mem_task: 5_242_880_000
 
 
 ####

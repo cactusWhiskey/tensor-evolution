@@ -15,7 +15,7 @@ def create(node_type: str) -> TensorNode:
     type must be the same as the node's class name"""
     if node_type == "Conv2dNode":
         return conv_maxpool_nodes.Conv2dNode.create_random()
-    if node_type == "Conv3dNode":
+    elif node_type == "Conv3dNode":
         return conv_maxpool_nodes.Conv3dNode.create_random()
     elif node_type == "DenseNode":
         return basic_nodes.DenseNode.create_random()

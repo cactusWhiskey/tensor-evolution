@@ -95,8 +95,8 @@ class TensorNetwork:
             self.register_node(node)
 
     def _create_prenodes_and_outputs(self, output_units: list,
-                                     preprocessing_layers: list[list] = None,
-                                     initial_nodes: list[list] = None):
+                                     preprocessing_layers: list = None,
+                                     initial_nodes: list = None):
 
         # start by creating all the output nodes
         for units in output_units:

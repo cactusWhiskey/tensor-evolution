@@ -21,8 +21,8 @@ direction: max #is fitness maximized or minimized. use "min" for minimized
 remote_mode: "ray_remote" #"local"
 ray_cpus_task: 2
 ray_gpus_task: 0
-ray_mem_task: 5_242_880_000
-
+ray_mem_task: 4_000_000_000
+max_ray_tasks: 4
 
 ####
 # Backends
@@ -76,7 +76,7 @@ pop_size: 20 #population size
 fitness_t_size: 7 #fitness tournament size
 complexity_t_size: 2 #complexity tournament size
 prob_sel_least_complex: 0.8 #prob to select least complex network in a complexity tournament
-ngen: 30 #generations to run evolution for
+ngen: 10 #generations to run evolution for
 max_network_size: 10 #maximum size of the generated neural networks, doesn't include inputs, outputs, or preprocessing
 
 

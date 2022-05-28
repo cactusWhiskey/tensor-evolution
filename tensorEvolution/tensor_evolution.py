@@ -182,13 +182,6 @@ class EvolutionWorker:
         # the index just gets passed back with the results so we can
         # identify which result goes with which individual later
 
-        # create a tuple the contains each individual paired with its index
-        # this will enable us to retrieve the evaluation results in
-        # any order, and still know which fitness goes with
-        # which individual
-        # also convert each individual to a list for serialization
-        indexes_with_inds = [(index, list(ind)) for index, ind in enumerate(individuals)]
-
         # check if remote
         remote_mode = self.master_config.config['remote_mode']
 
@@ -196,18 +189,58 @@ class EvolutionWorker:
             # use remote function
             # eval_results = list(self.pool.map_unordered(self.toolbox.evaluate, indexes_with_inds))
 
-            # this is a list of reference ids, not the actual results
-            eval_results_ids = list(map(self.toolbox.evaluate, indexes_with_inds))
+            # these are lists of reference ids, not the actual results
+            submitted_ids = []
+            results_ids = []
+            for index, individual in enumerate(individuals):
+                # this loop submits all the tasks to ray
+
+                # convert to list for serialization
+                individual = list(individual)
+
+                num_in_flight = len(submitted_ids)
+                max_allowed_tasks = self.master_config.config['max_ray_tasks']
+
+                # check if we have submitted too many tasks already
+                if num_in_flight > max_allowed_tasks:
+                    # too many tasks in flight, wait (could crash the program otherwise
+                    # with 'out of memory' error
+                    num_to_wait_for = num_in_flight - max_allowed_tasks
+                    # this will block until num_to_wait_for results finish evaluation
+                    done_ids, submitted_ids = ray.wait(submitted_ids, num_returns=num_to_wait_for)
+                    # add the done ids to the results_ids list
+                    results_ids += done_ids
+                # if we get this far, we don't have too many tasks in flight, so submit another one
+                indexed_individual = (index, individual)
+                submitted_ids.append(self.toolbox.evaluate(indexed_individual))
+
+            # at this point all tasks have been submitted, and many should already be finished
+            # lets start processing results while the remaining evaluations finish
+            for result_id in results_ids:
+                # get the actual evaluation result
+                result = ray.get(result_id)
+                self._process_evaluation_result(result, remote_mode, individuals)
+
+            # out of results to process, wait for more
             # need to get a result that is done
-            while len(eval_results_ids):
+            while len(submitted_ids):
                 # get a done result id
-                done_id, eval_results_ids = ray.wait(eval_results_ids)
+                done_id, submitted_ids = ray.wait(submitted_ids)
                 # process the result
                 result = ray.get(done_id[0])
                 self._process_evaluation_result(result, remote_mode, individuals)
         else:
             # use local function
+
+            # create a tuple the contains each individual paired with its index
+            # this will enable us to retrieve the evaluation results in
+            # any order, and still know which fitness goes with
+            # which individual
+            # also convert each individual to a list for serialization
+            indexes_with_inds = [(index, list(ind)) for index, ind in enumerate(individuals)]
+
             eval_results = list(map(self.toolbox.evaluate, indexes_with_inds))
+
             # local evaluation
             for result in eval_results:
                 self._process_evaluation_result(result, remote_mode, individuals)

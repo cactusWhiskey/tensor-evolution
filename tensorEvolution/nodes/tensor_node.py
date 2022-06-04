@@ -1,6 +1,6 @@
 """Base class for genome nodes"""
 import copy
-import itertools
+import uuid
 from abc import ABC, abstractmethod
 
 from keras.engine.keras_tensor import KerasTensor
@@ -9,10 +9,11 @@ from networkx import MultiDiGraph
 
 class TensorNode(ABC):
     """''Base class for nodes in a tensor network"""
-    id_iter = itertools.count()
+
+    # id_iter = itertools.count()
 
     def __init__(self):
-        self.id = next(TensorNode.id_iter)
+        self.id = str(uuid.uuid1())
         self.label = self.get_label()
         self.is_branch_root = False
         self.saved_layers = None
@@ -75,6 +76,7 @@ class TensorNode(ABC):
 
         # check if this node has saved its built KerasTensor
         # (i.e. this node is acting as a base case for the recursion).
+
         if self.saved_layers is not None:
             return self.saved_layers
         else:
@@ -88,7 +90,7 @@ class TensorNode(ABC):
             layers_so_far = self.fix_input(layers_so_far)
 
             # build this node, returning a KerasTensor
-            layers_so_far = self._build(layers_so_far)
+            layers_so_far = self._build(layers_so_far, graph, all_nodes)
 
             # check if this node needs to save its built KerasTensor (i.e. act as a base case)
             if self.is_branch_root:
@@ -115,7 +117,7 @@ class TensorNode(ABC):
         self.saved_layers = None
 
     @abstractmethod
-    def _build(self, layers_so_far) -> KerasTensor:
+    def _build(self, layers_so_far, graph=None, all_nodes=None) -> KerasTensor:
         raise NotImplementedError
 
     def _call_parents(self, all_nodes: dict, graph: MultiDiGraph) -> KerasTensor:
@@ -165,10 +167,13 @@ class TensorNode(ABC):
 
     def clone(self):
         """Deal with copying over the state of the cloned node"""
+        saved_layers = self.saved_layers
+        self.saved_layers = None
         new_node = self._clone()
         node_id = new_node.id
         new_node.__dict__ = copy.deepcopy(self.__dict__)
         new_node.id = node_id
+        self.saved_layers = saved_layers
         return new_node
 
     @abstractmethod

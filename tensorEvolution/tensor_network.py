@@ -2,7 +2,6 @@
 import copy
 import itertools
 import json
-import time
 import random
 import tensorflow as tf
 import networkx as nx
@@ -108,7 +107,7 @@ class TensorNetwork:
         for index, input_id in enumerate(self.input_ids):
             if preprocessing_layers is not None:
                 # create preprocessing nodes for each input
-                preprocess_node = basic_nodes.PreprocessingNode(preprocessing_layers[index], index)
+                preprocess_node = basic_nodes.PreprocessingNode(preprocessing_layers[index])
                 self.register_node(preprocess_node)
                 # connect this preprocessing node to the relevant input node
                 self.graph.add_edge(input_id, preprocess_node.id)
@@ -454,11 +453,21 @@ class TensorNetwork:
         Builds a model from this network
         :return: NN model
         """
-        self._check_integrity()
+        # TODO fix so it works for multiple inputs
+
+        self._walk_graph(self._check_integrity)
+
+        # print(self.all_nodes)
+        # print(self.graph.adj)
+
         inputs = self.all_nodes[self.input_ids[0]](self.all_nodes, self.graph)
         outputs = self.all_nodes[self.output_ids[0]](self.all_nodes, self.graph)
 
         model = tf.keras.Model(inputs=inputs, outputs=outputs)
+
+        # check if we should be trying retrieve weights
+        if evo_config.master_config.config['global_cache_training']:
+            self.get_weights(model)
         return model
 
     def get_output_nodes(self) -> dict:
@@ -610,7 +619,7 @@ class TensorNetwork:
         graph = nx.drawing.nx_pydot.to_pydot(self.graph)
 
         if filepath is None:
-            path = f'tensor_net_{self.net_id}_{time.time()}.png'
+            path = f'tensor_net_{self.net_id}.svg'
         else:
             path = filepath
         graph.write_svg(path)
@@ -645,34 +654,42 @@ class TensorNetwork:
             tensor_net = TensorNetwork.deserialize(tn_dict)
             return tensor_net
 
-    def _check_integrity(self):
-        """Walks the network and checks if any nodes are outputting variable
-        length to a node which only accepts fixed length input"""
+    def _check_integrity(self, parent_node, child_node):
+        # checks if any nodes are outputting variable
+        # length to a node which only accepts fixed length input"""
 
-        old_all_nodes = copy.deepcopy(self.all_nodes)
+        # check if this node outputs variable length
+        if parent_node.variable_output_size:
+            # check if children accept variable length input
+            if not child_node.accepts_variable_length_input:
+                # this is a problem, need to provide this child with fixed length input
+                converters = evo_config.master_config.config["variable_to_fixed"]
+                conversion_node_type = random.choice(converters)
+                conversion_node = node_utils.create(conversion_node_type)
+                conversion_node.set_variable_input(True)
+                self.insert_node_before(conversion_node, existing_node_id=child_node.id,
+                                        parent_id=parent_node.id, integrity_check=True)
+            else:
+                # child accepts variable length input, but make sure the flag is set
+                child_node.set_variable_input(True)
+        else:
+            # this node does not have variable output size,
+            # make certain the flag for child node is updated
+            child_node.set_variable_input(False)
 
-        for node in old_all_nodes.values():
-            # get this node's children
-            children = self.get_children(node)
-            for child in children:
-                # check if this node outputs variable length
-                if node.variable_output_size:
-                    # check if children accept variable length input
-                    if not child.accepts_variable_length_input:
-                        # this is a problem, need to provide this child with fixed length input
-                        converters = evo_config.master_config.config["variable_to_fixed"]
-                        conversion_node_type = random.choice(converters)
-                        conversion_node = node_utils.create(conversion_node_type)
-                        conversion_node.set_variable_input(True)
-                        self.insert_node_before(conversion_node, existing_node_id=child.id,
-                                                parent_id=node.id, integrity_check=True)
-                    else:
-                        # child accepts variable length input, but make sure the flag is set
-                        child.set_variable_input(True)
-                else:
-                    # this node does not have variable output size,
-                    # make certain the flag for child node is updated
-                    child.set_variable_input(False)
+    def _walk_graph(self, func):
+        next_nodes = []
+        current_nodes = list(self.get_input_nodes().values())
+
+        while len(current_nodes) > 0:
+            for node in current_nodes:
+                children = self.get_children(node)
+                for child in children:
+                    func(node, child)
+                next_nodes += children
+
+            current_nodes = next_nodes
+            next_nodes = []
 
 
 def get_parents(tensor_net: TensorNetwork, node: tensor_node.TensorNode) -> list:

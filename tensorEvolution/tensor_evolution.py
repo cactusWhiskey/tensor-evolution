@@ -1,19 +1,22 @@
 """This module contains the main evolution loop"""
-
 import json
+import os
 import random
+import sys
+import time
 
-import numpy
+import numpy as np
 import ray
 import tensorflow as tf
 from deap import creator, base, tools
 from matplotlib import pyplot as plt
-from ray.util.actor_pool import ActorPool
 
 from tensorEvolution import evo_config
 from tensorEvolution import tensor_encoder
 from tensorEvolution import tensor_network
 from tensorEvolution.evolutionOperators import selection, crossover, mutation, evaluation
+
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 
 
 class EvolutionWorker:
@@ -33,6 +36,10 @@ class EvolutionWorker:
         self.master_config = evo_config.master_config
         self.preprocessing_layers = None
         self.initial_nodes = None
+        self.data_for_gen_batching = None
+        self.data = None
+        self.num_to_skip = 0
+        self.val_num_to_skip = 0
         self._setup_creator()
 
     def update_master_config(self, config):
@@ -66,14 +73,14 @@ class EvolutionWorker:
 
     def _setup_stats(self):
         self.stats = tools.Statistics(key=lambda ind: ind.fitness.values)
-        self.stats.register("avg", numpy.mean)
+        self.stats.register("avg", np.mean)
         # stats.register("std", numpy.std)
-        self.stats.register("min", numpy.min)
-        self.stats.register("max", numpy.max)
+        self.stats.register("min", np.min)
+        self.stats.register("max", np.max)
 
     def _setup_log(self):
         self.logbook = tools.Logbook()
-        self.logbook.header = "gen", "avg", "max", "min", "max_size", "avg_size"
+        self.logbook.header = "gen", "avg", "max", "min", "max_size", "avg_size", 'gen_time'
 
     def plot(self):
         """Basic method for plotting fitness at each generation"""
@@ -107,31 +114,37 @@ class EvolutionWorker:
 
         creator.create("Individual", list, fitness=creator.Fitness)
 
-    def evolve(self, data):
+    def evolve(self, data, custom_init=False):
         """Main evolution method. Call to begin evolution.
 
-        Args:
-                data: data which will be passed to the model.fit method for training. Must be
-                    a tuple of form (x_train, y_train, x_test, y_test)
+        :param data: data which will be passed to the model.fit method for training.
+                Can be either data or a reference to a ray object store object
+        :param custom_init: set to True if you've already initialized ray manually.
+                Data should be a reference to an object store object in this case
         """
         # pylint: disable=E1101
 
+        batch_data_per_gen = self.master_config.config['batch_data_per_gen']
+        if batch_data_per_gen:
+            # move the data over so that the self.data variable can be used for the batches
+            self.data_for_gen_batching = data
+            data = None
+
         # configure the evaluation function based on remote vs local execution
         if self.master_config.config['remote_mode'] == "local":
-            self.toolbox.register("evaluate", evaluation.evaluate, data=data)
+            self.toolbox.register("evaluate", evaluation.evaluate)
         else:
-            ray.init()
-            # actors = []
-            # for _ in range(self.master_config.config['remote_actors']):
-            #     actor = RemoteEvoActor.remote(data)
-            #     actors.append(actor)
-            # self.pool = ActorPool(actors)
+            # remote mode
+            if not custom_init:
+                ray.init()
 
-            # put the data into the ray object store
-            data_id = ray.put(data)
-            # self.toolbox.register("evaluate", evaluation.eval_remote)
-            self.toolbox.register("evaluate", evaluation.eval_ray_task.remote, data_id=data_id)
+                # put the data into the ray object store
+                data = ray.put(data)
+                # self.toolbox.register("evaluate", evaluation.eval_remote)
 
+            self.toolbox.register("evaluate", evaluation.eval_ray_task.remote)
+
+        self.data = data
         # now start the evolution loop
         self._evolve()
 
@@ -184,6 +197,51 @@ class EvolutionWorker:
 
         # check if remote
         remote_mode = self.master_config.config['remote_mode']
+        batch_data_per_gen = self.master_config.config['batch_data_per_gen']
+
+        # pull a new batch of data
+        if batch_data_per_gen:
+            train_num_to_take = self.master_config.config['batch_data_train_size']
+            validation_num_to_take = self.master_config.config['batch_data_val_size']
+            data_type = self.master_config.config['gen_batch_datatype']
+            if data_type == 'tf_data':
+                if remote_mode == "ray_remote":
+                    raise ValueError("tf data not compatible with ray serialization, please use ray_data")
+
+                tf_dataset, val_tf_dataset = self.data_for_gen_batching
+                current_dataset = tf_dataset.skip(self.num_to_skip)
+                train_dataset = current_dataset.take(train_num_to_take).batch(32)
+                val_current_dataset = val_tf_dataset.skip(self.val_num_to_skip)
+                validation_dataset = val_current_dataset.take(validation_num_to_take).batch(32)
+                self.num_to_skip += train_num_to_take
+                self.val_num_to_skip += validation_num_to_take
+
+                self.data = np.array([train_dataset, validation_dataset])
+
+            elif data_type == 'numpy_data':
+                train_features = self.data_for_gen_batching[0]
+                train_labels = self.data_for_gen_batching[1]
+                val_features = self.data_for_gen_batching[2]
+                val_labels = self.data_for_gen_batching[3]
+
+                train_features, train_labels, self.num_to_skip = self._generate_numpy_gen_batch(train_features,
+                                                                                                train_labels,
+                                                                                                train_num_to_take,
+                                                                                                self.num_to_skip)
+                val_features, val_labels, self.val_num_to_skip = self._generate_numpy_gen_batch(val_features,
+                                                                                                val_labels,
+                                                                                                validation_num_to_take,
+                                                                                                self.val_num_to_skip)
+
+                data = np.array([train_features, train_labels, val_features, val_labels], dtype=object)
+
+                if remote_mode == "ray_remote":
+                    self.data = ray.put(data)
+                else:
+                    self.data = data
+
+            else:
+                raise ValueError("Unsupported gen batch data type")
 
         if remote_mode == "ray_remote":
             # use remote function
@@ -212,7 +270,7 @@ class EvolutionWorker:
                     results_ids += done_ids
                 # if we get this far, we don't have too many tasks in flight, so submit another one
                 indexed_individual = (index, individual)
-                submitted_ids.append(self.toolbox.evaluate(indexed_individual))
+                submitted_ids.append(self.toolbox.evaluate(indexed_individual, self.data))
 
             # at this point all tasks have been submitted, and many should already be finished
             # lets start processing results while the remaining evaluations finish
@@ -231,17 +289,11 @@ class EvolutionWorker:
                 self._process_evaluation_result(result, remote_mode, individuals)
         else:
             # use local function
-
-            # create a tuple the contains each individual paired with its index
-            # this will enable us to retrieve the evaluation results in
-            # any order, and still know which fitness goes with
-            # which individual
-            # also convert each individual to a list for serialization
-            indexes_with_inds = [(index, list(ind)) for index, ind in enumerate(individuals)]
-
-            eval_results = list(map(self.toolbox.evaluate, indexes_with_inds))
-
-            # local evaluation
+            eval_results = []
+            for index, individual in enumerate(individuals):
+                indexed_individual = (index, list(individual))
+                eval_results.append(self.toolbox.evaluate(indexed_individual, self.data))
+                # local evaluation
             for result in eval_results:
                 self._process_evaluation_result(result, remote_mode, individuals)
 
@@ -258,7 +310,7 @@ class EvolutionWorker:
 
         if remote_mode == "ray_remote":
             # remote execution has its own copies of the individuals it evaluated,
-            # so complexity and weight cache didn't get done on the local (master) copy of
+            # so complexity and weight cache, and integrity check didn't get done on the local (master) copy of
             # the individuals. Need to do that now.
 
             # __dict__ from the remote individual is returned by the eval function at position 1
@@ -267,11 +319,13 @@ class EvolutionWorker:
             # copy the updated state over
             tensor_net.__dict__ = tensor_dict_from_remote
 
-    def _gen_bookkeeping(self, gen):
+    def _gen_bookkeeping(self, gen, gen_time):
         self.record = self.stats.compile(self.pop)
         biggest, avg = self._get_individual_size_stats()
         self.record['max_size'] = biggest
         self.record['avg_size'] = avg
+        gen_time = f"{round(gen_time)}s"
+        self.record['gen_time'] = gen_time
         self.logbook.record(gen=gen, **self.record)
         print(self.logbook.stream)
 
@@ -288,7 +342,7 @@ class EvolutionWorker:
         # build population if it wasn't loaded from disk
         if self.pop is None:
             self.pop = self.toolbox.population(n=self.master_config.config['pop_size'])
-            self._save_preprocessing_layers()
+            # self._save_preprocessing_layers()
 
         # compute initial fitness of population
         invalid_ind = [ind for ind in self.pop if not ind.fitness.valid]
@@ -296,7 +350,9 @@ class EvolutionWorker:
 
     def _main_evolution_loop(self):
         for gen in range(self.master_config.config['ngen']):
+            gen_start_time = time.time()
             self._pop_integrity_check()
+
             # Select the next generation individuals
             offspring = self.toolbox.select(self.pop, len(self.pop))
 
@@ -314,8 +370,10 @@ class EvolutionWorker:
             # The population is entirely replaced by the offspring
             self.pop[:] = offspring
 
+            gen_done_time = time.time()
+            gen_time = gen_done_time - gen_start_time
             # Record and print info about this generation
-            self._gen_bookkeeping(gen)
+            self._gen_bookkeeping(gen, gen_time)
 
             # save data to disk
             self._save_every(gen)
@@ -327,7 +385,6 @@ class EvolutionWorker:
         print("Best individual is %s" % best_ind.fitness.values)
         best_ind[1].build_model().summary()
         self.save(self.master_config.config['save_pop_filepath'])
-        self.plot()
 
     def get_best_individual(self):
         """Returns the best individual in the population"""
@@ -425,17 +482,8 @@ class EvolutionWorker:
                 model.add(pre_layer)
             preprocessing_save_path = evo_config. \
                 master_config.config['preprocessing_save_path'][index]
-            model.save(preprocessing_save_path)
 
-    # def _load_preprocessing_layers(self):
-    #     self.preprocessing_layers = []
-    #     preprocessing_save_paths = evo_config.master_config.config['preprocessing_save_path']
-    #     for path in preprocessing_save_paths:
-    #         model = tf.keras.models.load_model(path)
-    #         prelayers = []
-    #         for layer in model.layers:
-    #             prelayers.append(layer)
-    #         self.preprocessing_layers.append(prelayers)
+            model.save(preprocessing_save_path)
 
     def _get_individual_size_stats(self) -> tuple:
         """For debugging use, returns info on individual size.
@@ -459,3 +507,39 @@ class EvolutionWorker:
     def _pop_integrity_check(self):
         """Debug hook to check on the population"""
         pass
+
+    @staticmethod
+    def _generate_numpy_gen_batch(np_features: np.ndarray, np_labels: np.ndarray,
+                                  num_to_take: int, num_to_skip: int) -> tuple:
+
+        if len(np_features) != len(np_labels):
+            raise ValueError("datasets must have same length")
+        data_len = len(np_features)
+        # deal with train dataset indexes
+        start_index = num_to_skip % data_len
+        end_index = start_index + num_to_take
+
+        gen_features = None
+        gen_labels = None
+        done = False
+        while not done:
+            if end_index > data_len:
+                if gen_features is None:
+                    gen_features = np_features[start_index:]
+                    gen_labels = np_labels[start_index:]
+                else:
+                    gen_features = np.concatenate((gen_features, np_features[start_index:]), axis=0)
+                    gen_labels = np.concatenate((gen_labels, np_labels[start_index:]), axis=0)
+
+                num_taken = data_len - start_index
+                num_to_take -= num_taken
+                num_to_skip += num_taken
+            else:
+                if gen_features is None:
+                    gen_features = np_features[start_index:end_index]
+                    gen_labels = np_labels[start_index:end_index]
+                else:
+                    gen_features = np.concatenate((gen_features, np_features[start_index:end_index]), axis=0)
+                    gen_labels = np.concatenate((gen_labels, np_labels[start_index:end_index]), axis=0)
+                done = True
+        return gen_features, gen_labels, num_to_skip

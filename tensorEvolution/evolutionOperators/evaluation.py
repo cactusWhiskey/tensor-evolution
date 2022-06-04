@@ -1,37 +1,7 @@
 """Evaluation of an individual in the population"""
 
 import ray
-
 from tensorEvolution import util, evo_config
-
-
-# # noinspection PyCallingNonCallable
-# @ray.remote(num_cpus=evo_config.master_config.config['remote_actor_cpus'],
-#             num_gpus=evo_config.master_config.config['remote_actor_gpus'])
-# class RemoteEvoActor:
-#     """This class is a Ray remote actor.
-#     This actor performs evaluation on individuals in the population remotely."""
-#
-#     def __init__(self, data):
-#         """initialize an actor
-#
-#             Args:
-#                 data: data which will be passed to the model.fit method for training. Must be
-#                     a tuple of form (x_train, y_train, x_test, y_test)
-#             """
-#
-#         self.data = data
-#
-#     def eval(self, indexed_individual: tuple):
-#         """Remote evaluation function, evaluates and individual's fitness.
-#         The individual is evaluated by compiling and training a model based on
-#         the individual's genome. The test accuracy is used as the fitness
-#          Args:
-#              indexed_individual: a tuple of form (index, individual),
-#         where individual is an individual in the population (individuals are a list at this point)
-#              """
-#
-#         return evaluate(indexed_individual, self.data)
 
 
 def evaluate(indexed_individual: tuple, data) -> tuple:
@@ -40,15 +10,29 @@ def evaluate(indexed_individual: tuple, data) -> tuple:
         indexed_individual: a tuple of form (index, individual),
         where individual is an individual in the population (individuals inherit from list)
         data: data to be used for training and testing.
-        In the form: (x_train, y_train, x_test, y_test)
+
         :return a tuple of form (fitness, Tensornet dict, index)
         """
+    using_generator = False
 
-    if not isinstance(data, tuple):
+    # get the data from the object store if we were passed an object ref
+    if isinstance(data, ray._raylet.ObjectRef):
         data = ray.get(data)
 
-    # unpack data tuple
-    x_train, y_train, x_test, y_test = data
+    # check data length (to determine how it's packed)
+    if len(data) == 2:
+        # train and validation data passed as generators or tf datasets
+        using_generator = True
+        train_data = data[0]
+        validation_data = data[1]
+    elif len(data) == 4:
+        train_data = data[0]
+        train_labels = data[1]
+        validation_data = data[2]
+        validation_labels = data[3]
+    else:
+        raise ValueError("unsupported data format")
+
     # unpack indexed individual
     index, individual = indexed_individual
     # config is always in position 0 of the genome
@@ -61,9 +45,9 @@ def evaluate(indexed_individual: tuple, data) -> tuple:
     model.compile(loss=config.loss, optimizer=config.opt,
                   metrics=config.config['metrics'])
 
-    # check if we should be trying retrieve weights
-    if config.config['global_cache_training']:
-        tensor_net.get_weights(model)
+    # # check if we should be trying retrieve weights
+    # if config.config['global_cache_training']:
+    #     tensor_net.get_weights(model)
 
     # compute this tensornet's complexity (needed for the selection process later on)
     tensor_net.complexity = util.compute_complexity(model)
@@ -73,37 +57,27 @@ def evaluate(indexed_individual: tuple, data) -> tuple:
     if batch_size == 'None':
         batch_size = None
 
-    # fit the model
-    model.fit(x_train, y_train, epochs=config.config['max_fit_epochs'],
-              callbacks=config.callbacks, verbose=config.config['verbose'][0],
-              batch_size=batch_size)
-    # evaluate the model
-    test_loss, test_metric = model.evaluate(x_test, y_test, verbose=config.config['verbose'][1])
+    if using_generator:
+        # fit the model
+        model.fit(train_data, epochs=config.config['max_fit_epochs'],
+                  callbacks=config.callbacks, verbose=config.config['verbose'][0],
+                  batch_size=batch_size)
+        # evaluate the model
+        test_loss, test_metric = model.evaluate(validation_data, verbose=config.config['verbose'][1])
+    else:
+        # fit the model
+        model.fit(train_data, train_labels, epochs=config.config['max_fit_epochs'],
+                  callbacks=config.callbacks, verbose=config.config['verbose'][0],
+                  batch_size=batch_size)
+        # evaluate the model
+        test_loss, test_metric = model.evaluate(validation_data, validation_labels,
+                                                verbose=config.config['verbose'][1])
 
     if config.config['global_cache_training']:
         tensor_net.set_weights(model)
 
-    # del model
-
     # noinspection PyRedundantParentheses
     return ((test_metric,), tensor_net.__dict__, index)
-
-
-# def eval_remote(actor: RemoteEvoActor, indexed_individual: tuple):
-#     """evaluation function for Ray remote actors. Used to map an actor to an individual.
-#     Args:
-#         actor: Ray remote actor
-#         indexed_individual: a tuple of form (index, individual),
-#         where individual is an individual in the population (individuals inherit from list)
-#     :return """
-#     index, individual = indexed_individual  # unpack tuple
-#     individual = list(individual)  # convert individual to a list for serialization
-#     # (this loses the stored fitness data, but we don't need it right now)
-#
-#     # repack tuple
-#     indexed_individual = (index, individual)
-#     # call remote function
-#     return actor.eval.remote(indexed_individual)
 
 
 # noinspection PyCallingNonCallable

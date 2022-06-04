@@ -26,7 +26,7 @@ class EmbeddingNode(TensorNode):
         # clone.weights = copy.deepcopy(self.weights)
         return clone
 
-    def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
+    def _build(self, layers_so_far, graph=None, all_nodes=None) -> KerasTensor:
         self.keras_tensor_input_name = layers_so_far.name
         embedding = tf.keras.layers.Embedding(self.input_dim, self.output_dim,
                                               input_length=self.input_length)

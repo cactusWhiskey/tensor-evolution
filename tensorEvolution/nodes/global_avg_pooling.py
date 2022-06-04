@@ -17,7 +17,7 @@ class GlobalAveragePooling1DNode(TensorNode):
         """Creates a new node."""
         return GlobalAveragePooling1DNode()
 
-    def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
+    def _build(self, layers_so_far, graph=None, all_nodes=None) -> KerasTensor:
         self.keras_tensor_input_name = layers_so_far.name
         pooling = tf.keras.layers.GlobalAveragePooling1D()
         layers_so_far = pooling(layers_so_far)

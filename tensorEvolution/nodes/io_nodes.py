@@ -39,14 +39,14 @@ class InputNode(TensorNode):
         """
         return InputNode(self.input_shape)
 
-    def _build(self, layers_so_far):
+    def _build(self, layers_so_far, graph=None, all_nodes=None):
         """Note that by default, the build method sends layers so far as a parameter,
         but for an input node, it's just equal to None.
         We redefine it below, since it's a convenient variable
         name to use in intermediate steps. """
 
-        layers_so_far = tf.keras.Input(shape=self.input_shape, dtype=self.dtype)
-        return layers_so_far
+        layers_initial = tf.keras.Input(shape=self.input_shape, dtype=self.dtype)
+        return layers_initial
 
     def deserialize_cleanup(self):
         """
@@ -78,11 +78,17 @@ class OutputNode(TensorNode):
         # clone.weights = self.weights
         return clone
 
-    def _build(self, layers_so_far) -> KerasTensor:
+    def _build(self, layers_so_far, graph=None, all_nodes=None) -> KerasTensor:
+        if layers_so_far.shape == (None, None):
+            print(all_nodes)
+            print(graph.adj)
         layers_so_far = tf.keras.layers.Flatten()(layers_so_far)
         self.keras_tensor_input_name = layers_so_far.name
         outputs = tf.keras.layers.Dense(self.num_outputs,
                                         activation=None)
+        if layers_so_far.shape == (None, None):
+            print(all_nodes)
+            print(graph.adj)
         self.name = outputs.name
         return outputs(layers_so_far)
 

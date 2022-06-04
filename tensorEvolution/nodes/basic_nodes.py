@@ -14,7 +14,7 @@ from tensorEvolution.nodes.tensor_node import TensorNode
 class FlattenNode(TensorNode):
     """Implements flatten layer as a genome node"""
 
-    def _build(self, layers_so_far: KerasTensor):
+    def _build(self, layers_so_far, graph=None, all_nodes=None):
         return tf.keras.layers.Flatten()(layers_so_far)
 
     def _clone(self):
@@ -44,7 +44,7 @@ class AdditionNode(TensorNode):
         parents = self.get_parents(all_nodes, graph)
         return [parent(all_nodes, graph) for parent in parents]
 
-    def _build(self, layers_so_far: list) -> KerasTensor:
+    def _build(self, layers_so_far, graph=None, all_nodes=None) -> KerasTensor:
         return tf.keras.layers.Add()(layers_so_far)
 
     @staticmethod
@@ -91,7 +91,7 @@ class DenseNode(TensorNode):
         # clone.weights = copy.deepcopy(self.weights)
         return clone
 
-    def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
+    def _build(self, layers_so_far, graph=None, all_nodes=None) -> KerasTensor:
         self.keras_tensor_input_name = layers_so_far.name
         regularizer = evo_config.EvoConfig.build_regularizer(self.kernel_regularizer)
         dense = tf.keras.layers.Dense(self.num_units,
@@ -126,7 +126,7 @@ class DenseNode(TensorNode):
 class ReluNode(TensorNode):
     """Implements relu layer as genome node"""
 
-    def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
+    def _build(self, layers_so_far, graph=None, all_nodes=None) -> KerasTensor:
         return tf.keras.layers.ReLU()(layers_so_far)
 
     def _clone(self):
@@ -142,7 +142,7 @@ class ReluNode(TensorNode):
 class BatchNormNode(TensorNode):
     """Implements batch norm node type"""
 
-    def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
+    def _build(self, layers_so_far, graph=None, all_nodes=None) -> KerasTensor:
         return tf.keras.layers.BatchNormalization()(layers_so_far)
 
     def _clone(self):
@@ -175,7 +175,7 @@ class DropoutNode(TensorNode):
         # new_node.rate = copy.copy(self.rate)
         return new_node
 
-    def _build(self, layers_so_far) -> KerasTensor:
+    def _build(self, layers_so_far, graph=None, all_nodes=None) -> KerasTensor:
         return tf.keras.layers.Dropout(self.rate)(layers_so_far)
 
     def mutate(self):
@@ -185,15 +185,23 @@ class DropoutNode(TensorNode):
 class PreprocessingNode(TensorNode):
     """Node which holds preprocessing layers"""
 
-    def __init__(self, preprocessing_layers: list, save_index: int):
+    def __init__(self, preprocessing_layers: list):
         super().__init__()
-        self.preprocessing_layers = preprocessing_layers
-        self.save_index = save_index
 
-    def _build(self, layers_so_far) -> KerasTensor:
+        if preprocessing_layers is not None:
+            serialized_layers = []
+            for layer in preprocessing_layers:
+                serialized_layers.append(tf.keras.layers.serialize(layer))
+        else:
+            serialized_layers = None
+
+        self.preprocessing_layers = serialized_layers
+
+    def _build(self, layers_so_far, graph=None, all_nodes=None) -> KerasTensor:
         if self.preprocessing_layers is not None:
-            for pre_layer in self.preprocessing_layers:
-                layers_so_far = pre_layer(layers_so_far)
+            for serialized_layer in self.preprocessing_layers:
+                deserialized_layer = tf.keras.layers.deserialize(serialized_layer)
+                layers_so_far = deserialized_layer(layers_so_far)
 
         return layers_so_far
 
@@ -204,7 +212,7 @@ class PreprocessingNode(TensorNode):
 
     def _clone(self):
         """Clones this node"""
-        return PreprocessingNode(self.preprocessing_layers, save_index=self.save_index)
+        return PreprocessingNode(None)
 
     def _serialize(self) -> dict:
         preprocessing_layers = self.preprocessing_layers
@@ -213,18 +221,19 @@ class PreprocessingNode(TensorNode):
         self.preprocessing_layers = preprocessing_layers
         return serial_dict
 
-    def load_layers(self):
-        """Load this node's preprocessing layers from file"""
-        preprocessing_save_paths = evo_config.master_config.config['preprocessing_save_path']
-        model = tf.keras.models.load_model(preprocessing_save_paths[self.save_index])
-
-        prelayers = []
-        for layer in model.layers:
-            prelayers.append(layer)
-        self.preprocessing_layers = prelayers
+    # def load_layers(self):
+    #     """Load this node's preprocessing layers from file"""
+    #     preprocessing_save_paths = evo_config.master_config.config['preprocessing_save_path']
+    #     model = tf.keras.models.load_model(preprocessing_save_paths[self.save_index])
+    #
+    #     prelayers = []
+    #     for layer in model.layers:
+    #         prelayers.append(layer)
+    #     self.preprocessing_layers = prelayers
 
     def deserialize_cleanup(self):
-        self.load_layers()
+        pass
+        # self.load_layers()
 
 
 class ConcatNode(TensorNode):
@@ -240,7 +249,7 @@ class ConcatNode(TensorNode):
         else:
             return node_utils.make_shapes_same(layers_so_far)
 
-    def _build(self, layers_so_far: list) -> KerasTensor:
+    def _build(self, layers_so_far, graph=None, all_nodes=None) -> KerasTensor:
         return tf.keras.layers.Concatenate()(layers_so_far)
 
     @staticmethod

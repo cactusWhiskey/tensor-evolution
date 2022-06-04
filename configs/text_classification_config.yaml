@@ -17,10 +17,11 @@ direction: max #is fitness maximized or minimized. use "min" for minimized
 ####
 # Ray remote settings
 ####
-remote_mode: "local" # "ray_remote"
+remote_mode: "ray_remote" #"local"
 ray_cpus_task: 2
 ray_gpus_task: 0
-ray_mem__task: 5,242,880,000
+ray_mem_task: 2_000_000_000
+max_ray_tasks: 8
 
 
 ####
@@ -107,5 +108,5 @@ mutatable_keys: ['cx', 'm_mut', 'm_insert', 'm_del', 'hyper_cx',
 ####
 save_pop_every: 5 # save population to disk every n generations
 save_pop_filepath: 'pop.txt' # path to save population
-preprocessing_save_path: ['save'] # path to save preprocessing layers. needs to be a directory. One for each set of preprocessing layers
+
 ...

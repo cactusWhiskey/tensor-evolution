@@ -1,6 +1,7 @@
 """Contains class and methods for encoding hyperparameters
 into the genome as well as utilities for loading configurations from file"""
 import copy
+import itertools
 import json
 import os
 import random
@@ -23,7 +24,10 @@ class EvoConfig:
     """A class for representing hyperparameters in the genome,
     as well as capturing evolution configuration parameters"""
 
+    id_iter = itertools.count(200)
+
     def __init__(self):
+        self.instance_id = next(EvoConfig.id_iter)
         self.config = {}
         self.loss = None
         self.opt = None

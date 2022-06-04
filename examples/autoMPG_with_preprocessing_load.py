@@ -41,6 +41,7 @@
 # Please see the original work for a detailed description of the steps not pertaining to evolution:
 # https://www.tensorflow.org/tutorials/keras/regression
 
+
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -72,16 +73,12 @@ def main():
     train_labels = train_labels.to_numpy()
     test_features = test_features.to_numpy()
     test_labels = test_labels.to_numpy()
-
-    del dataset, raw_dataset, train_dataset, test_dataset
-
     normalizer = tf.keras.layers.Normalization(axis=-1)
     normalizer.adapt(np.array(train_features))
     train_features = normalizer(train_features).numpy()
     test_features = normalizer(test_features).numpy()
 
-    #########################################################
-    # end of tensorflow tutorial, beginning of evolution example
+    del dataset, raw_dataset, train_dataset, test_dataset
 
     # build custom config
     custom_config = {}
@@ -92,33 +89,26 @@ def main():
     custom_config['loss'] = 'MeanAbsoluteError'
     custom_config['max_fit_epochs'] = 20
     custom_config['metrics'] = ['mean_absolute_error']
-    custom_config['ngen'] = 20
+    custom_config['ngen'] = 30
     custom_config['direction'] = 'min'
 
     # set the custom config
     evo_config.master_config.setup_user_config(custom_config)
 
-    # build data array
+    # build data tuple
     data = np.array([train_features, train_labels, test_features, test_labels], dtype=object)
     # create evolution worker
-    worker = tensor_evolution.EvolutionWorker()
-    # run the evolution
-    worker.evolve(data=data)
+    worker = tensor_evolution.EvolutionWorker.load('pop.txt')  # change path as needed
 
-    # get best individual from the population
     best = worker.get_best_individual()
     tensor_net = best[1]
-    # draw the genome
-    tensor_net.draw_graphviz_svg()
-    # build a tf model from the genome
     model = tensor_net.build_model()
-
+    model.summary()
     model.compile(loss=worker.master_config.loss, optimizer=worker.master_config.opt,
                   metrics=worker.master_config.config['metrics'])
+
+    model.fit(train_features, train_labels, epochs=100)
     model.evaluate(test_features, test_labels)
-    model.fit(train_features, train_labels, epochs=50)
-    model.evaluate(test_features, test_labels)
-    worker.plot()
 
 
 if __name__ == "__main__":

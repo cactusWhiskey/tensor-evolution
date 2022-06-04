@@ -45,6 +45,8 @@ def create(node_type: str) -> TensorNode:
         return embedding.EmbeddingNode(None, None)
     elif node_type == "ConcatNode":
         return basic_nodes.ConcatNode()
+    elif node_type == "PreprocessingNode":
+        return basic_nodes.PreprocessingNode(None, None)
     else:
         raise ValueError("Unsupported node type: " + str(node_type))
 
@@ -287,6 +289,8 @@ def _reshape_rank2_target(layers_so_far: KerasTensor,
 
 def _reshape_rank2_rank3(layers_so_far, existing_shape) -> KerasTensor:
     row_size = existing_shape[1]  # length of rows
+    if row_size is None:
+        print("debug")
     target_shape = _shape_from_primes(row_size, 2)
     return tf.keras.layers.Reshape(target_shape)(layers_so_far)
 

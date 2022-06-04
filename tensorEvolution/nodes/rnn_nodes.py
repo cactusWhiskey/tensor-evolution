@@ -26,7 +26,7 @@ class LstmNode(TensorNode):
         clone = LstmNode(self.num_units)
         return clone
 
-    def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
+    def _build(self, layers_so_far, graph=None, all_nodes=None) -> KerasTensor:
         self.keras_tensor_input_name = layers_so_far.name
 
         return tf.keras.layers.LSTM(self.num_units,

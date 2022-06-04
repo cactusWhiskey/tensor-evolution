@@ -33,7 +33,7 @@ class Conv2dNode(TensorNode):
         should be implemented in subclasses as needed."""
         self.kernel_size = tuple(self.kernel_size)
 
-    def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
+    def _build(self, layers_so_far, graph=None, all_nodes=None) -> KerasTensor:
         self.keras_tensor_input_name = layers_so_far.name
         regularizer = evo_config.EvoConfig.build_regularizer(self.kernel_regularizer)
         conv2d = tf.keras.layers.Conv2D(self.filters, self.kernel_size,
@@ -88,7 +88,7 @@ class MaxPool2DNode(TensorNode):
         should be implemented in subclasses as needed."""
         self.pool_size = tuple(self.pool_size)
 
-    def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
+    def _build(self, layers_so_far, graph=None, all_nodes=None) -> KerasTensor:
         return tf.keras.layers.MaxPooling2D(self.pool_size,
                                             padding=self.padding)(layers_so_far)
 
@@ -135,7 +135,7 @@ class Conv3dNode(TensorNode):
         should be implemented in subclasses as needed."""
         self.kernel_size = tuple(self.kernel_size)
 
-    def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
+    def _build(self, layers_so_far, graph=None, all_nodes=None) -> KerasTensor:
         self.keras_tensor_input_name = layers_so_far.name
         regularizer = evo_config.EvoConfig.build_regularizer(self.kernel_regularizer)
         conv3d = tf.keras.layers.Conv3D(self.filters, self.kernel_size,
@@ -190,7 +190,7 @@ class MaxPool3DNode(TensorNode):
         should be implemented in subclasses as needed."""
         self.pool_size = tuple(self.pool_size)
 
-    def _build(self, layers_so_far: KerasTensor) -> KerasTensor:
+    def _build(self, layers_so_far, graph=None, all_nodes=None) -> KerasTensor:
         return tf.keras.layers.MaxPooling3D(self.pool_size,
                                             padding=self.padding)(layers_so_far)
 

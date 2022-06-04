@@ -31,6 +31,7 @@
 # https://www.tensorflow.org/tutorials/keras/text_classification
 
 import os
+import random
 import re
 import string
 
@@ -43,6 +44,9 @@ from tensorEvolution.nodes import embedding
 
 
 def main():
+    seed = random.randint(1, 10000)
+    print(f"Seed {seed}")
+    random.seed(4820)
     """Main method"""
 
     # load data
@@ -80,14 +84,15 @@ def main():
     train_examples = vectorize_text(train_examples)
     test_examples = vectorize_text(test_examples)
 
+    # train_dataset = tf.data.Dataset.from_tensor_slices((train_examples, train_labels))
+    # test_dataset = tf.data.Dataset.from_tensor_slices((test_examples, test_labels))
+
     embedding_dim = 16
 
     # load the evolution config
-    path = os.path.join(CONFIG_DIR, 'text_classification_config.yaml')
+    path = os.path.join(CONFIG_DIR, 'text_classification_config_batched.yaml')
     evo_config.master_config.setup_user_config(path)
 
-    # crate data tuple
-    data = train_examples, train_labels, test_examples, test_labels
     # create evolution worker
     worker = tensor_evolution.EvolutionWorker()
 
@@ -97,7 +102,8 @@ def main():
     # provide it as a list of lists
     worker.set_initial_nodes([initial_node_stack])
     # run the evolution
-    worker.evolve(data=data)
+    # worker.evolve(data=(train_dataset, test_dataset))
+    worker.evolve(data=(train_examples, train_labels, test_examples, test_labels))
 
     best = worker.get_best_individual()
     # print("\n" + str(best[0]))

@@ -106,4 +106,29 @@ The best individual after running MNIST with a population of 20 individuals for 
 
 ![MNIST Genome](/doc/images/MNIST.svg) 
 
-![MNIST Summary](/doc/images/MNIST_Summary.png)
+```
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ input_4 (InputLayer)        [(None, 28, 28)]          0         
+                                                                 
+ reshape (Reshape)           (None, 28, 28, 1)         0         
+                                                                 
+ conv2d (Conv2D)             (None, 28, 28, 16)        272       
+                                                                 
+ conv2d_1 (Conv2D)           (None, 28, 28, 8)         1160      
+                                                                 
+ flatten (Flatten)           (None, 6272)              0         
+                                                                 
+ dense (Dense)               (None, 10)                62730     
+                                                                 
+=================================================================
+Total params: 64,162
+Trainable params: 64,162
+Non-trainable params: 0 
+```
+
+```
+
+
+```

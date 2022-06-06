@@ -102,7 +102,7 @@ Very much still a work in progress, (as is this readme), but it is functional. T
 
 ## MNIST Results
 
-The best individual after running MNIST with a population of 20 individuals for 15 generations:
+The best individual after running MNIST with a population of 20 individuals for 10 generations:
 
 ![MNIST Genome](/doc/images/MNIST.svg) 
 
@@ -127,8 +127,36 @@ Total params: 64,162
 Trainable params: 64,162
 Non-trainable params: 0 
 ```
+## Auto MPG Dataset Results
+
+The best individual after running Auto MPG with a population of 100 individuals for 20 generations:
+
+![AutoMPG Genome](/doc/images/AutoMPG.svg) 
 
 ```
+__________________________________________________________________________________________________
+ Layer (type)                   Output Shape         Param #     Connected to                     
+==================================================================================================
+ input_1 (InputLayer)           [(None, 9)]          0           []                               
+                                                                                                  
+ dropout (Dropout)              (None, 9)            0           ['input_1[0][0]']                
+                                                                                                  
+ add (Add)                      (None, 9)            0           ['input_1[0][0]',                
+                                                                  'dropout[0][0]']                
+                                                                                                  
+ dense (Dense)                  (None, 256)          2560        ['add[0][0]']                    
+                                                                                                  
+ flatten (Flatten)              (None, 256)          0           ['dense[0][0]']                  
+                                                                                                  
+ dense_1 (Dense)                (None, 1)            257         ['flatten[0][0]']                
+                                                                                                  
+==================================================================================================
+Total params: 2,817
+Trainable params: 2,817
+Non-trainable params: 0
+__________________________________________________________________________________________________
 
+Evaluation Results
+3/3 [==============================] - 0s 0s/step - loss: 1.5367 - mean_absolute_error: 1.5367
 
 ```

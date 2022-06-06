@@ -88,7 +88,7 @@ loss: 'BinaryCrossentropy' #loss function
 metrics: ['accuracy'] #metrics for neural network model
 max_fit_epochs: 6 #max number of epochs to train a genome for
 early_stopping: {use_early: True, monitor: 'loss', patience: 2 ,min_delta: 0.02}
-verbose: [0,1] #train verbose, test verbose
+verbose: [0,0] #train verbose, test verbose
 batch_size: 'None' # batch sized used for the NN training fit method
 
 

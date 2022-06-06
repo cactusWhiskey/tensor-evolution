@@ -41,7 +41,7 @@ valid_node_types: ["DenseNode", "ReluNode", "BatchNormNode",
 #valid_node_types: ["AdditionNode", "Conv2dNode"]
 
 #Nodes which can accept variable length input and generate fixed length output
-variable_to_fixed: ["GlobalAveragePooling1DNode"]
+variable_to_fixed: ["GlobalAveragePooling1DNode", "LstmNode"]
 
 # Nodes which take multiple inputs and output a single tensor
 multiple_to_single: ["AdditionNode", "ConcatNode"]

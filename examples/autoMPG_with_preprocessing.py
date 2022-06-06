@@ -115,9 +115,12 @@ def main():
 
     model.compile(loss=worker.master_config.loss, optimizer=worker.master_config.opt,
                   metrics=worker.master_config.config['metrics'])
-    model.evaluate(test_features, test_labels)
+    print(f"Validation metrics without additional training (using saved weights) "
+          f"{model.evaluate(test_features, test_labels)}")
+
     model.fit(train_features, train_labels, epochs=50)
-    model.evaluate(test_features, test_labels)
+    print(f"Validation metrics after additional training "
+          f"{model.evaluate(test_features, test_labels)}")
     worker.plot()
 
 

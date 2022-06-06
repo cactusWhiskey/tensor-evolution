@@ -100,14 +100,23 @@ def main():
     worker.evolve(data=data)
 
     best = worker.get_best_individual()
-    # print("\n" + str(best[0]))
-    # tensor_net = best[1]
-    # model = tensor_net.build_model()
-    # model.compile(loss=worker.master_config.loss, optimizer=worker.master_config.opt,
-    #               metrics=worker.master_config.config['metrics'])
-    #
-    # model.fit(train_features, train_labels, epochs=20)
-    # model.evaluate(test_features, test_labels)
+
+    tensor_net = best[1]
+    # draw the genome
+    tensor_net.draw_graphviz_svg()
+    # build a tf model from the genome
+    model = tensor_net.build_model()
+
+    model.compile(loss=worker.master_config.loss, optimizer=worker.master_config.opt,
+                  metrics=worker.master_config.config['metrics'])
+
+    print(f"Validation metrics without additional training (using saved weights) "
+          f"{model.evaluate(test_examples, test_labels)}")
+
+    model.fit(train_examples, train_labels, epochs=20)
+    print(f"Validation metrics after additional training "
+          f"{model.evaluate(test_examples, test_labels)}")
+    worker.plot()
 
 
 if __name__ == "__main__":

@@ -52,8 +52,8 @@ class TensorNetwork:
             """
         tensor_net = TensorNetwork(None, None, False)
         tensor_net.__dict__ = tn_dict
-        tensor_net.net_id = int(tensor_net.net_id)
-        tensor_net.all_nodes = {int(k): v for (k, v) in tensor_net.all_nodes.items()}
+        tensor_net.net_id = tensor_net.net_id
+        tensor_net.all_nodes = {k: v for (k, v) in tensor_net.all_nodes.items()}
         tensor_net.graph = nx.node_link_graph(tn_dict['graph'])
 
         for node_id, serial_node in tensor_net.all_nodes.items():

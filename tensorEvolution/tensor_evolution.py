@@ -233,7 +233,7 @@ class EvolutionWorker:
                                                                                                 validation_num_to_take,
                                                                                                 self.val_num_to_skip)
 
-                data = np.array([train_features, train_labels, val_features, val_labels], dtype=object)
+                data = (train_features, train_labels, val_features, val_labels)
 
                 if remote_mode == "ray_remote":
                     self.data = ray.put(data)
@@ -515,14 +515,14 @@ class EvolutionWorker:
         if len(np_features) != len(np_labels):
             raise ValueError("datasets must have same length")
         data_len = len(np_features)
-        # deal with train dataset indexes
-        start_index = num_to_skip % data_len
-        end_index = start_index + num_to_take
 
         gen_features = None
         gen_labels = None
         done = False
         while not done:
+            # deal with train dataset indexes
+            start_index = num_to_skip % data_len
+            end_index = start_index + num_to_take
             if end_index > data_len:
                 if gen_features is None:
                     gen_features = np_features[start_index:]
@@ -541,5 +541,8 @@ class EvolutionWorker:
                 else:
                     gen_features = np.concatenate((gen_features, np_features[start_index:end_index]), axis=0)
                     gen_labels = np.concatenate((gen_labels, np_labels[start_index:end_index]), axis=0)
+                num_taken = end_index - start_index
+                num_to_take -= num_taken
+                num_to_skip += num_taken
                 done = True
         return gen_features, gen_labels, num_to_skip

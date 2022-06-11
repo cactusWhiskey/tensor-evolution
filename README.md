@@ -50,7 +50,7 @@ This list is currently expanding. So far:
 ### Running an Evolution
 Start by importing the *tensor_evolution* module. This is the main driver for the evolution. 
 
-```import tensor_evolution```
+```import tensorEvolution```
 
 Next, prepare your data as a tuple of four objects, like so:
 

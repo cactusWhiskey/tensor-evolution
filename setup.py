@@ -18,7 +18,7 @@ URL = 'https://github.com/cactusWhiskey/tensor-evolution'
 EMAIL = 'ricardo.fr.rivero@gmail.com'
 AUTHOR = 'Ricardo Rivero'
 REQUIRES_PYTHON = '>=3.7.0'
-VERSION = '0.1.9'
+VERSION = '0.1.10'
 
 # What packages are required for this module to be executed?
 REQUIRED = [

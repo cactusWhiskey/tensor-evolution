@@ -1,6 +1,8 @@
 """Evaluation of an individual in the population"""
 
 import ray
+import random
+import tensorflow as tf
 from tensorEvolution import util, evo_config
 
 
@@ -13,6 +15,10 @@ def evaluate(indexed_individual: tuple, data) -> tuple:
 
         :return a tuple of form (fitness, Tensornet dict, index)
         """
+    # ensures evaluation is reproducible even when with running in ray remote tasks
+    random.seed(42)
+    tf.random.set_seed(42)
+
     using_generator = False
 
     # get the data from the object store if we were passed an object ref

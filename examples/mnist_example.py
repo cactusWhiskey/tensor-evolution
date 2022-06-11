@@ -17,9 +17,13 @@ Copyright 2019 The TensorFlow Authors.
 
 This derivative work is also licensed under Apache 2.0.
 """
+import random
+
 import tensorflow as tf
 from tensorEvolution import tensor_evolution
 
+random.seed(42)
+tf.random.set_seed(42)
 
 def main():
     # get mnist dataset

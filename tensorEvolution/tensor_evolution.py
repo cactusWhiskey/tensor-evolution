@@ -1,8 +1,6 @@
 """This module contains the main evolution loop"""
 import json
-import os
 import random
-import sys
 import time
 
 import numpy as np
@@ -30,10 +28,11 @@ class EvolutionWorker:
         self.stats = None
         self.pop = None
         self.pool = None
+        self.master_config = evo_config.master_config
         self.toolbox = base.Toolbox()
         self._setup_stats()
         self._setup_log()
-        self.master_config = evo_config.master_config
+
         self.preprocessing_layers = None
         self.initial_nodes = None
         self.data_for_gen_batching = None

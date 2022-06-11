@@ -15,7 +15,7 @@ class TensorNetwork:
     id_iter = itertools.count(100)
 
     def __init__(self, input_shapes: list, output_units: list, connected=True,
-                 preprocessing_layers: list = None, initial_nodes: list = None):
+                 preprocessing_layers: list = None, initial_nodes: list = None, random_seed=None):
         self.graph = nx.MultiDiGraph()
         self.net_id = next(TensorNetwork.id_iter)
         self.all_nodes = {}
@@ -26,6 +26,10 @@ class TensorNetwork:
         self.input_shapes = input_shapes
         self.output_units = output_units
         self.complexity = 0
+        self.random_seed = random_seed
+
+        if random_seed is not None:
+            random.seed(random_seed)
 
         if connected:
             self._create_inputs(input_shapes)

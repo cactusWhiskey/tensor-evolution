@@ -3,7 +3,7 @@
 
 Tensor-Evolution is a library for evolving neural network topology using a genetic algorithm. This library currently 
 uses [Deap](https://github.com/DEAP/deap) as its evolutionary backend, and [Tensorflow](https://github.com/tensorflow/tensorflow) 
-for the neural networks.<br>
+for the neural networks. Ray is used for parallel execution.<br>
 
 Note that this library doesn't build networks a single neuron at a time, the basic building blocks are entire layers.
 

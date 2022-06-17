@@ -65,8 +65,7 @@ Please reference the end to end examples for full details.
 
 ### Configuration
 
-Everything is configured via yaml file. For the moment, since you will need to clone the project to use it, 
-just edit the default *config.yaml* file.
+Everything is configured via yaml file.
 
 For example, to change population size to 30:
 
@@ -84,7 +83,7 @@ Mutation rates, valid neural network layer types, **input and output shapes**, e
 ## Project Status
 
 
-Very much still a work in progress, (as is this readme), but it is functional. The mnist example runs just fine.
+Very much still a work in progress, (as is this readme), but it is functional. The mnist, autompg, and text classification examples runs just fine.
 
 ## Dependencies
 
